@@ -8,7 +8,13 @@
 #'
 #' @param ... Passed to [shiny::runApp()]. Common choices: `port`, `host`,
 #'   `launch.browser`.
-#' @return Called for its side effect of running a Shiny app.
+#' @return Called for its side effect of running a Shiny app; the
+#'   underlying `shiny::runApp()` returns invisibly.
+#' @examples
+#' \dontrun{
+#' run_app()                                    # blocks until the app closes
+#' run_app(port = 4321, launch.browser = FALSE) # custom port, no browser
+#' }
 #' @export
 run_app <- function(...) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
