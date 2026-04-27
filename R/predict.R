@@ -369,6 +369,10 @@ predict_sex <- function(first = NULL) {
 #'   tables. Default `FALSE`.
 #' @param geography_type `"cvap"` (default) or `"vap"` — selects the
 #'   bundled geography table used when a geography column is detected.
+#' @param progress If `TRUE` (default), prints a one-line text progress
+#'   bar to `stderr` showing percent complete, elapsed time, and an
+#'   estimated time remaining. Pass `FALSE` to suppress (e.g. inside
+#'   non-interactive scripts or when capturing output).
 #' @return A data frame with `nrow(data)` rows and 7 columns:
 #'   `p_white`, `p_black`, `p_aian`, `p_aapi`, `p_nh_multi`,
 #'   `p_hispanic` (race probabilities, summing to 1 per row when
@@ -386,7 +390,8 @@ predict_sex <- function(first = NULL) {
 #' @export
 predict_names <- function(data,
                           include_extra = FALSE,
-                          geography_type = c("cvap", "vap")) {
+                          geography_type = c("cvap", "vap"),
+                          progress = TRUE) {
   if (!is.data.frame(data)) {
     stop("`data` must be a data.frame.", call. = FALSE)
   }
@@ -445,6 +450,31 @@ predict_names <- function(data,
   tc <- pick("tract")
   bc <- pick("block_group")
 
+  show_progress <- isTRUE(progress) && n > 0L
+  if (show_progress) {
+    pb_start <- Sys.time()
+    pb_step  <- max(1L, n %/% 100L)
+    pb_width <- 30L
+    pb_print <- function(i) {
+      frac    <- i / n
+      elapsed <- as.numeric(difftime(Sys.time(), pb_start, units = "secs"))
+      eta     <- if (frac > 0) elapsed * (1 - frac) / frac else 0
+      filled  <- floor(pb_width * frac)
+      arrow   <- filled < pb_width
+      bar <- paste0(
+        "|",
+        strrep("=", filled),
+        if (arrow) ">" else "",
+        strrep(" ", max(0L, pb_width - filled - as.integer(arrow))),
+        "|"
+      )
+      cat(sprintf("\r%s %3d%% (%.0fs elapsed, ~%.0fs remaining)   ",
+                  bar, round(100 * frac), elapsed, eta),
+          file = stderr())
+    }
+    pb_print(0L)  # initial draw
+  }
+
   for (i in seq_len(n)) {
     pred <- tryCatch(
       predict_race(
@@ -460,21 +490,24 @@ predict_names <- function(data,
       ),
       error = function(e) NULL
     )
-    if (is.null(pred)) next
+    if (!is.null(pred)) {
+      race_probs <- NULL
+      if (!is.null(pred$geography) && !is.null(pred$geography$combined)) {
+        race_probs <- pred$geography$combined
+      } else if (!is.null(pred$combined)) {
+        race_probs <- pred$combined$probs
+      }
+      if (!is.null(race_probs)) {
+        out[i, race_out_cols] <- race_probs[race_keys]
+      }
+      if (!is.null(pred$sex) && !is.null(pred$sex$probs)) {
+        out$p_female[i] <- pred$sex$probs[["female"]]
+      }
+    }
 
-    race_probs <- NULL
-    if (!is.null(pred$geography) && !is.null(pred$geography$combined)) {
-      race_probs <- pred$geography$combined
-    } else if (!is.null(pred$combined)) {
-      race_probs <- pred$combined$probs
-    }
-    if (!is.null(race_probs)) {
-      out[i, race_out_cols] <- race_probs[race_keys]
-    }
-    if (!is.null(pred$sex) && !is.null(pred$sex$probs)) {
-      out$p_female[i] <- pred$sex$probs[["female"]]
-    }
+    if (show_progress && (i == n || i %% pb_step == 0L)) pb_print(i)
   }
+  if (show_progress) cat("\n", file = stderr())
 
   out
 }
