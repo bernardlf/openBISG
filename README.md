@@ -89,6 +89,19 @@ predict_names(df, first = "first", middle = "middle",
 #> appends p_white, p_black, p_aian, p_aapi, p_nh_multi,
 #> p_hispanic, p_male, p_female to the data frame.
 
+# Geography-aware (BISG): fold a ZIP / tract / block-group prior into the
+# name posterior. At most one of zcta / tract / block_group per call.
+predict_race(first = "Maria", last = "Garcia", zcta = "30307")
+predict_race(last = "Smith",  tract = "01001020100", geography_type = "vap")
+
+# Look up just the geographic prior P(R | G).
+geo_prior(zcta = "00601")              # ZCTA in Puerto Rico (CVAP)
+geo_prior(tract = "01001020100")       # tract in Autauga County, AL
+geo_prior(block_group = "010010201001", type = "vap")
+
+# Vectorized: name a column of `df` that holds the geography ID.
+df$zip <- c("30307", "10001", "94110")
+predict_names(df, first = "first", last = "last", zcta_col = "zip")
 ```
 
 Also exported: `predict_names()` (vectorized data-frame interface that
@@ -213,6 +226,110 @@ back out:
 | *F* and *S* | *P(F \| R) · P(S \| R) · P(R)* | *P(R \| F) · P(R \| S) / P(R)* |
 | *F*, *M*, *S* | *P(F \| R) · P(M \| R) · P(S \| R) · P(R)* | *P(R \| F) · P(R \| M) · P(R \| S) / P(R)*<sup>2</sup> |
 | *k* tokens | *Π P(n*<sub>i</sub>* \| R) · P(R)* | *Π P(R \| n*<sub>i</sub>*) / P(R)*<sup>*k − 1*</sup> |
+
+## Geography
+
+When a geography ID is supplied, the name posterior is folded together
+with the geographic prior under conditional independence given race
+(BISG / BIFSG):
+
+$$P(R \mid \mathrm{name}, G) \propto \frac{P(R \mid \mathrm{name}) \, P(R \mid G)}{P(R)}$$
+
+`P(R)` is the population prior attached to `last_names`. With no name
+input, the result collapses to `P(R | G)` directly.
+
+### How to supply geography
+
+Three entry points accept the same set of geography arguments. Pass
+**at most one** of `zcta`, `tract`, or `block_group` per call; supplying
+more than one raises an error.
+
+| Function | Geography arguments | Population basis |
+|---|---|---|
+| `geo_prior()` | `zcta=`, `tract=`, `block_group=` | `type = "cvap"` (default) or `"vap"` |
+| `predict_race()` | `zcta=`, `tract=`, `block_group=`, or `geography_probs=` (length-6 named numeric in `race_groups()` order) | `geography_type = "cvap"` (default) or `"vap"` |
+| `predict_names()` | `zcta_col=`, `tract_col=`, `block_group_col=` (column names of `data` holding the per-row ID) | `geography_type = "cvap"` (default) or `"vap"` |
+
+### Accepted ID formats
+
+- **ZCTA / ZIP** — 5-digit string or integer. Sub-five-digit values are
+  zero-padded (`601` → `"00601"`); non-numeric characters are stripped.
+- **Census Tract** — 11-digit FIPS string `state(2) + county(3) + tract(6)`,
+  e.g. `"01001020100"`. The Census Summary File prefixed form
+  `"1400000US01001020100"` is also accepted.
+- **Block Group** — 12-digit FIPS string `state(2) + county(3) + tract(6) + bg(1)`,
+  e.g. `"010010201001"`. The prefixed form `"1500000US010010201001"`
+  is also accepted.
+
+IDs that don't match any row in the bundled table return `NULL` from
+`geo_prior()`; in `predict_race()` / `predict_names()` the row falls
+back to the name-only posterior (and `geography$found` / the
+`p_geo_matched` column is set to `FALSE`).
+
+### Bundled datasets, sources, and vintages
+
+The package ships six lazy-loaded geographic-prior tables, one for each
+combination of geography level × population basis. All six have the same
+columns: `geoid`, `total`, and the six race / Hispanic-origin shares
+(`white`, `black`, `aian`, `aapi`, `nh_multi`, `hispanic`) summing to 1
+per row.
+
+| Object | Level | Basis | Source | Reference period |
+|---|---|---|---|---|
+| `geo_zcta_cvap` | ZCTA (5-digit) | CVAP — citizens 18+ | 2020-2024 ACS CVAP Special Tabulation, apportioned from tract to ZCTA via the Census 2020 ZCTA-to-Tract relationship file (the special tab does not publish ZCTA directly) | 2020-2024 ACS 5-year |
+| `geo_tract_cvap` | Census Tract (11-digit) | CVAP | 2020-2024 ACS CVAP Special Tabulation, tract level | 2020-2024 ACS 5-year |
+| `geo_bg_cvap` | Block Group (12-digit) | CVAP | 2020-2024 ACS CVAP Special Tabulation, block-group level | 2020-2024 ACS 5-year |
+| `geo_zcta_vap` | ZCTA | VAP — everyone 18+ | 2020 Decennial DHC, Table P11 (ZCTA) | April 1, 2020 |
+| `geo_tract_vap` | Census Tract | VAP | 2020 Decennial DHC, Table P11 (tract) | April 1, 2020 |
+| `geo_bg_vap` | Block Group | VAP | 2020 Decennial DHC, Table P11 (block group) | April 1, 2020 |
+
+The geography vintage is fixed by the bundled data — to use a different
+ACS or Decennial release, pass your own table via
+`predict_race(geography_probs = ...)` (or rebuild the `.rda` files; see
+**Rebuilding the bundled data** below).
+
+### Choosing CVAP vs VAP
+
+- **CVAP** (Citizen Voting Age Population) — citizens age 18+ only.
+  Appropriate for predictions about likely voters, e.g. matching against
+  a voter file or registration list.
+- **VAP** (Voting Age Population) — everyone age 18+ (citizens and
+  non-citizens). Appropriate when the bearer's citizenship status is
+  unknown and you want the broadest 18+ denominator.
+
+CVAP is the default. The two bases can give materially different priors
+in geographies with large non-citizen populations.
+
+### Examples
+
+```r
+# Standalone geographic prior P(R | G).
+geo_prior(zcta  = "30307")                  # CVAP, default
+geo_prior(tract = "01001020100", type = "vap")
+
+# BISG: name + geography, single call.
+predict_race(first = "Maria", last = "Garcia",
+             zcta  = "30307")               # P(R | name, ZCTA)
+predict_race(last  = "Smith",
+             block_group = "010010201001",
+             geography_type = "vap")
+
+# Geography only (no name): collapses to P(R | G).
+predict_race(zcta = "00601")
+
+# Bring your own prior (e.g. from a different ACS vintage).
+my_prior <- c(white = 0.40, black = 0.20, aian = 0.01,
+              aapi  = 0.10, nh_multi = 0.04, hispanic = 0.25)
+predict_race(first = "Jose", last = "Lopez",
+             geography_probs = my_prior)
+
+# Vectorized: each row carries its own ZIP.
+df$zip <- c("30307", "10001", "94110")
+predict_names(df, first = "first", last = "last",
+              zcta_col = "zip", geography_type = "cvap")
+#> appends p_white..p_hispanic (name+geo), p_male/p_female,
+#> plus p_geo_level and p_geo_matched.
+```
 
 ## Name matching cascade
 
