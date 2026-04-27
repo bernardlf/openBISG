@@ -522,4 +522,100 @@ predict_names <- function(data,
   out
 }
 
+#' Convenience wrapper: top race and sex prediction per row
+#'
+#' Auto-detects which input columns are present in `data` (any subset of
+#' `first`, `middle`, `last`, `maiden`, `zcta`, `tract`, `block_group` —
+#' columns must be named exactly these) and returns a two-column data
+#' frame holding the single most-likely race / Hispanic-origin label and
+#' sex label per row.
+#'
+#' If multiple geography columns are present, the most specific one is
+#' used (`block_group` > `tract` > `zcta`). If no recognized columns are
+#' present an error is raised.
+#'
+#' Per-row argmax: the bin with the largest probability wins (ties go to
+#' the first in [race_groups()] / [sex_groups()] order). Rows where
+#' nothing matched yield `NA` in the corresponding column. Race uses the
+#' name-plus-geography posterior when geography is supplied, otherwise
+#' the name-only posterior.
+#'
+#' @param data A data frame with any subset of the recognized columns
+#'   listed above.
+#' @param include_extra Forwarded to [predict_race()] / [predict_names()].
+#' @param geography_type `"cvap"` (default) or `"vap"`, forwarded to
+#'   [predict_names()] when a geography column is detected.
+#' @param labels If `TRUE` (default), values are the human-readable
+#'   labels from [race_group_labels()] / [sex_group_labels()]. If
+#'   `FALSE`, the short keys from [race_groups()] / [sex_groups()].
+#' @return A data frame with `nrow(data)` rows and exactly two columns:
+#'   `race` and `sex`. Values are `NA_character_` for rows where no
+#'   prediction could be made.
+#' @seealso [predict_names()], [predict_race()].
+#' @examples
+#' df <- data.frame(
+#'   first = c("Maria", "John", "Mary Ann"),
+#'   last  = c("Garcia", "Smith", "Johnson"),
+#'   zcta  = c("30307", "10001", "94110"),
+#'   stringsAsFactors = FALSE
+#' )
+#' predict_top(df)
+#' @export
+predict_top <- function(data,
+                        include_extra = FALSE,
+                        geography_type = c("cvap", "vap"),
+                        labels = TRUE) {
+  if (!is.data.frame(data)) stop("`data` must be a data.frame.", call. = FALSE)
+  geography_type <- match.arg(geography_type)
+
+  recognized_names <- c("first", "middle", "last", "maiden")
+  recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
+
+  name_args <- intersect(recognized_names, names(data))
+  geo_present <- intersect(recognized_geo, names(data))
+  geo_arg <- if (length(geo_present)) geo_present[1] else NA_character_
+
+  if (length(name_args) == 0L && is.na(geo_arg)) {
+    stop("No recognized columns in `data`. Expected any of: ",
+         paste(c(recognized_names, recognized_geo), collapse = ", "), ".",
+         call. = FALSE)
+  }
+
+  call_args <- list(data = data,
+                    prefix = ".__top_",
+                    include_extra = include_extra,
+                    geography_type = geography_type)
+  for (a in name_args) call_args[[a]] <- a
+  if (!is.na(geo_arg)) call_args[[paste0(geo_arg, "_col")]] <- geo_arg
+
+  scored <- do.call(predict_names, call_args)
+
+  race_keys <- race_groups()
+  sex_keys  <- sex_groups()
+  race_cols <- paste0(".__top_", race_keys)
+  sex_cols  <- paste0(".__top_", sex_keys)
+
+  argmax_label <- function(cols, keys) {
+    vapply(seq_len(nrow(scored)), function(i) {
+      row <- as.numeric(unlist(scored[i, cols, drop = TRUE]))
+      if (all(is.na(row))) return(NA_character_)
+      keys[which.max(row)]
+    }, character(1))
+  }
+
+  race_top <- argmax_label(race_cols, race_keys)
+  sex_top  <- argmax_label(sex_cols,  sex_keys)
+
+  if (labels) {
+    race_lab <- race_group_labels()
+    sex_lab  <- sex_group_labels()
+    race_top <- ifelse(is.na(race_top), NA_character_, race_lab[race_top])
+    sex_top  <- ifelse(is.na(sex_top),  NA_character_, sex_lab[sex_top])
+  }
+
+  data.frame(race = unname(race_top),
+             sex  = unname(sex_top),
+             stringsAsFactors = FALSE)
+}
+
 `%||%` <- function(a, b) if (is.null(a)) b else a
