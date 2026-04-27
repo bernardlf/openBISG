@@ -1,0 +1,307 @@
+# openBISG
+
+Open-source Bayesian Improved Surname Geocoding (BISG) for R.
+Computes per-name race / Hispanic-origin and sex probabilities from the
+U.S. Census Bureau's 2020 Decennial Census frequently occurring first and
+last names tabulations, optionally folded together with a geographic
+prior at ZIP / ZCTA, Census Tract, or Block Group level (CVAP from the
+2020-2024 ACS Special Tabulation, or VAP from 2020 DHC).
+
+## Install
+
+You can install **openBISG** from
+[GitHub](https://github.com/bernardlf/openBISG) with:
+
+```r
+# install.packages("pak")
+pak::pkg_install("bernardlf/openBISG")
+```
+
+Or, from a clone of the repo:
+
+```r
+install.packages(c("stringi", "shiny"))     # one-time
+install.packages("openBISG", repos = NULL, type = "source")
+```
+
+The package ships eleven lazy-loaded data objects (~22 MB compressed):
+`first_names`, `last_names`, `first_names_sex`,
+`first_names_extra`, `last_names_extra` (the Rosenman, Olivella, and Imai
+(2023) voter-file based additional names, opt-in via
+`include_extra = TRUE`), and the six geographic priors
+`geo_zcta_cvap`, `geo_tract_cvap`, `geo_bg_cvap`,
+`geo_zcta_vap`, `geo_tract_vap`, `geo_bg_vap`.
+
+## Quick start
+
+```r
+library(openBISG)
+
+# Single given name + single surname.
+predict_race(first = "MARIA", last = "GARCIA")
+#> $tokens$first    : list( "MARIA"  -> hit )
+#> $tokens$last     : list( "GARCIA" -> hit )
+#> $surname_used    : "last"
+#> $combined$probs  : 6-vector P(group | MARIA, GARCIA)
+#> $combined$n      : 2
+
+# Compound given name → matches MARIAJOSE row directly (one token).
+predict_race(first = "Maria Jose")
+#> $combined$n = 1 ; sex P(female) ≈ 0.996  (MARIAJOSE row)
+
+# Two given names split across fields → two evidence pieces for race,
+# but sex uses ONLY the first-name field (middle names are excluded).
+predict_race(first = "Maria", middle = "Jose")
+#> $combined$n = 2 ; $sex$n = 1 ; sex P(female) ≈ 0.998  (MARIA row)
+
+# Maiden name replaces last in the combined estimate.
+predict_race(first = "Maria", last = "Smith", maiden = "Garcia")
+#> $surname_used = "maiden"  ; $combined uses MARIA + GARCIA, ignoring SMITH
+#> $tokens$last  is still populated for reference
+
+# Vectors work too.
+predict_race(first = c("Maria", "Jose"), last = c("Garcia", "Lopez"))
+
+# Optional fall-through to Rosenman, Olivella, and Imai (2023) voter-file
+# additions for names absent from Census 2020.
+predict_race(first = "AABIDA", include_extra = TRUE)
+#> $tokens$first[["AABIDA"]]$dataset = "rosenman"
+#> $combined$probs reads the AABIDA row from first_names_extra
+#
+# Same flag on the data-frame interface:
+predict_names(df, first = "first", last = "last", include_extra = TRUE)
+
+# Sex uses ONLY the first name field (middle is excluded). Compound
+# cascade still applies, so "Maria Jose" reads the MARIAJOSE row.
+predict_sex("Michael")
+predict_sex("Maria Jose")  # P(female) ≈ 0.996 from MARIAJOSE row
+
+# Batch mode: append per-row probability columns to a data frame.
+df <- data.frame(
+  first  = c("Maria",  "John",  "Mary Ann"),
+  middle = c("Jose",    NA,      NA),
+  last   = c("Garcia", "Smith", "Johnson"),
+  maiden = c(NA,        NA,     "Lopez"),
+  stringsAsFactors = FALSE
+)
+predict_names(df, first = "first", middle = "middle",
+              last = "last", maiden = "maiden")
+#> appends p_white, p_black, p_aian, p_aapi, p_nh_multi,
+#> p_hispanic, p_male, p_female to the data frame.
+
+```
+
+Also exported: `predict_names()` (vectorized data-frame interface that
+appends per-row probability columns), `lookup_name()` (single-table
+cascade lookup), `lookup_with_fallback()` (try a primary table then a
+secondary on miss), `lookup_compound_or_tokens()` (compound-first
+cascade for given-name fields), `tokenize_names()` (whitespace
+tokenizer), and `normalize_name()` (NFD + uppercase).
+
+## Probability model
+
+`predict_race(first, middle, last, maiden)` accepts each field as either
+a length-one whitespace-separated string or a character vector. Lookup
+is **compound-first for given-name fields** and **per-token for surname
+fields**, so a person reporting their name the way the Census tabulated
+it gets the same answer the Census dictionaries publish.
+
+> **A note on Asian + NHPI biracials and the `aapi` key.** The brief's
+> methodology (Comenetz 2016 §3; Word et al. 2007 §4.7) constructs the
+> `aapi` bin by "combining" the single-race Non-Hispanic Asian Alone
+> and single-race Non-Hispanic Native Hawaiian / Pacific Islander Alone
+> populations, consistent with the pre-1997 OMB single "API" race
+> category. The text leaves ambiguous whether the small sub-population
+> of NH respondents who report both Asian *and* NHPI (and no other
+> race) is placed in `aapi` or in `nh_multi`. Per the 2020 Census P.L.
+> 94-171 Summary File, Table P2, this group totals **197,918 people**
+> (variable `P2_025N`) — about **1.0% of the 20,438,655 NH respondents
+> whose reported races are some combination of Asian and NHPI only**
+> (`P2_008N` + `P2_009N` + `P2_025N`: 19,618,719 + 622,018 + 197,918).
+> Whichever bin the brief assigns them to, the population mismatch is
+> well under 1% of the AAPI total and does not materially affect
+> predictions for individual names. Source: U.S. Census Bureau, *2020
+> Census Redistricting Data (P.L. 94-171) Summary File*, Table P2,
+> accessed via <https://api.census.gov/data/2020/dec/pl> on 2026-04-25.
+
+### Given-name fields: compound-first cascade
+
+The Census first-name brief explicitly notes that internal spaces are
+stripped during normalization (`"MICHAEL, MI CH AEL, MICHAELJR, and
+MICHAEL III are all counted as MICHAEL"`), and as a result compound
+forms like `MARYANN`, `ANNMARIE`, `MARYBETH`, `MARIAJOSE` show up as
+their own rows. Their race and sex distributions can differ
+substantially from the parts: `MARIAJOSE` is **99.6% female** despite
+`JOSE` alone being 99.8% male. Naive-Bayes-combining `MARIA` and `JOSE`
+would give ~50/50 (the two signals nearly cancel); reading `MARIAJOSE`
+directly is much more accurate.
+
+For each given-name field, [lookup_compound_or_tokens()] therefore:
+
+1. Tries the entire field as one name. The cascade in [lookup_name()]
+   strips internal spaces, so `"Mary Ann"` matches `MARYANN`. If the
+   match did not come from the cascade's segment-split rule, the field
+   contributes **one** evidence piece (`k = 1`).
+2. Otherwise tokenizes on whitespace and looks up each token, with a
+   fallback from the first-name table to the last-name table.
+
+### Surname fields: per-token
+
+`last` and `maiden` are tokenized per-token only (no compound retry),
+with a fallback from the last-name table to the first-name table on
+miss. When `maiden` is non-empty its tokens **replace** `last` in the
+combined estimate; the last-name lookups are still recorded under
+`$tokens$last` and `$surname_used` reports `"maiden"`.
+
+Tokens absent from both tables are reported but excluded from the
+combined estimate.
+
+### Combining across *k* matched tokens
+
+The package implements the Bayesian Improved Surname Geocoding (BISG)
+formulation (Elliott et al. 2008, 2009; Fiscella and Fremont 2006;
+Imai and Khanna 2016) as extended with first-name information by Voicu
+(2018) and middle-name information by Imai, Olivella, and Rosenman
+(2022). This is a Naive Bayes implementation under the assumption that each 
+name is conditionally independent of every other given race. 
+With *k* matched tokens *n*<sub>1</sub>, …, *n*<sub>k</sub>:
+
+$$P(R \mid n_1, \ldots, n_k) \propto \frac{\prod_{i=1}^{k} P(R \mid n_i)}{P(R)^{k - 1}}$$
+
+with *P(R)* the marginal prior — frequency-weighted across all names in
+the proportion tables — exposed at `$combined$probs`. With *k* = 1 the
+formula reduces to *P(R | n*<sub>1</sub>*)* (no division). The result
+is renormalized to sum to 1.
+
+Sex (`$sex$probs`) uses the same compound-first cascade against the
+first-name sex table, but is computed from the **`first` field only** —
+middle names are deliberately excluded. Cross-sex middle names are
+common enough that combining them into P(sex) tends to mislead the
+estimate. The middle name still contributes to the race combination,
+just not to sex.
+
+### Why the *(k − 1)* exponent on *P(R)*?
+
+Starting from the published BISG-with-name-supplements formula in
+Imai, Olivella, and Rosenman (2022 — the methodology companion to the
+[Rosenman, Olivella, and Imai (2023) *Scientific Data* dictionaries](https://www.nature.com/articles/s41597-023-02202-2)
+— building on Voicu's (2018) extension of the original BISG approach
+of Elliott et al. (2008, 2009)):
+
+$$P(R \mid F, M, S, G) \propto P(F \mid R) \cdot P(M \mid R) \cdot P(S \mid R) \cdot P(R \mid G)$$
+
+Generalizing from {*F*, *M*, *S*} to *k* arbitrary name tokens
+*n*<sub>1</sub>, …, *n*<sub>k</sub> under the same conditional-independence
+assumption, and dropping geography (so *P(R | G)* collapses to *P(R)*):
+
+$$P(R \mid n_1, \ldots, n_k) \propto \prod_{i=1}^{k} P(n_i \mid R) \cdot P(R)$$
+
+Substituting Bayes' rule for each likelihood
+*P(n*<sub>i</sub>* | R) = P(R | n*<sub>i</sub>*) · P(n*<sub>i</sub>*) / P(R)*
+and dropping the *P(n*<sub>i</sub>*)* factors that are constant in *R*:
+
+$$P(R \mid n_1, \ldots, n_k) \propto \prod_{i=1}^{k} \frac{P(R \mid n_i)}{P(R)} \cdot P(R) = \frac{\prod_{i=1}^{k} P(R \mid n_i)}{P(R)^{k - 1}}$$
+
+Each posterior smuggles in one factor of *P(R)*; the prior in the
+likelihood form covers exactly one of those, leaving *k − 1* to divide
+back out:
+
+| inputs | likelihood form | posterior form (what `$combined$probs` uses) |
+|---|---|---|
+| just *S* | *P(S \| R) · P(R)* | *P(R \| S)* — read directly from the CSV |
+| just *F* | *P(F \| R) · P(R)* | *P(R \| F)* |
+| *F* and *S* | *P(F \| R) · P(S \| R) · P(R)* | *P(R \| F) · P(R \| S) / P(R)* |
+| *F*, *M*, *S* | *P(F \| R) · P(M \| R) · P(S \| R) · P(R)* | *P(R \| F) · P(R \| M) · P(R \| S) / P(R)*<sup>2</sup> |
+| *k* tokens | *Π P(n*<sub>i</sub>* \| R) · P(R)* | *Π P(R \| n*<sub>i</sub>*) / P(R)*<sup>*k − 1*</sup> |
+
+## Name matching cascade
+
+Modeled on the [`wru`](https://github.com/kosukeimai/wru) 
+R package (Khanna, Imai, Rosenman, and Olivella 2021; Imai and Khanna 2016). 
+Steps applied to the user-supplied name in order; the first hit wins:
+
+1. **exact** — trim, NFD-decompose + drop combining marks, uppercase
+   (`PEÑA` matches `PENA`).
+2. **punctuation removed** — drop non-alphanumerics except spaces
+   (`O'CONNOR` → `OCONNOR`).
+3. **punctuation and spaces removed** — also drop spaces
+   (`VAN DER BERG` → `VANDERBERG`).
+4. **generational suffix removed** (last names only) — strip `JR`, `SR`,
+   `II`, `III`, `IV`, `JUNIOR`, `SENIOR`, `THIRD`. `SR` only stripped if the
+   suffixed form is at least 7 characters.
+5. **first / second segment of a multi-part name** — split on hyphen, comma,
+   or space (`GARCIA-LOPEZ` → `GARCIA`, then `LOPEZ`).
+
+No fuzzy / edit-distance / phonetic matching.
+
+## Rebuilding the bundled data
+
+The `.rda` files in `data/` are generated from the proportion CSVs at the
+repo root. Regenerate after the CSVs change:
+
+```bash
+cd openBISG/data-raw
+Rscript build_data.R     # rebuilds first_names / last_names / etc.
+Rscript build_geo.R      # rebuilds geo_zcta_* / geo_tract_* / geo_bg_*
+```
+
+## References
+
+### Census source data
+
+- Comenetz, J. (2026). *First Name Data From the 2020 Census.* 2020
+  Census Briefs, C2020BR-13. U.S. Census Bureau.
+- Comenetz, J. (2026). *Last Name Data From the 2020 Census.* 2020
+  Census Briefs, C2020BR-14. U.S. Census Bureau.
+- Comenetz, J. (2016). *Frequently Occurring Surnames in the 2010
+  Census.* Technical Report, U.S. Census Bureau.
+  <https://www2.census.gov/topics/genealogy/2010surnames/surnames.pdf>
+- Word, D. L., Coleman, C. D., Nunziata, R., & Kominski, R. (2007).
+  *Demographic Aspects of Surnames from Census 2000.* U.S. Census
+  Bureau.
+  <https://www2.census.gov/topics/genealogy/2000surnames/surnames.pdf>
+- U.S. Census Bureau (2021). *2020 Census Redistricting Data
+  (Public Law 94-171) Summary File* — Table P2 (Hispanic or Latino,
+  and Not Hispanic or Latino by Race). Used for the AAPI / NHPI
+  biracial population counts cited above.
+  <https://api.census.gov/data/2020/dec/pl>
+
+### Bayesian Improved Surname Geocoding (BISG) and name supplements
+
+- Elliott, M. N., Fremont, A., Morrison, P. A., Pantoja, P., & Lurie,
+  N. (2008). A new method for estimating race/ethnicity and associated
+  disparities where administrative records lack self-reported
+  race/ethnicity. *Health Services Research* 43, 1722–1736.
+- Elliott, M. N., Morrison, P. A., Fremont, A., McCaffrey, D. F.,
+  Pantoja, P., & Lurie, N. (2009). Using the Census Bureau's surname
+  list to improve estimates of race/ethnicity and associated
+  disparities. *Health Services and Outcomes Research Methodology* 9,
+  69–83.
+- Fiscella, K., & Fremont, A. M. (2006). Use of geocoding and surname
+  analysis to estimate race and ethnicity. *Health Services Research*
+  41, 1482–1500.
+- Voicu, I. (2018). Using first name information to improve race and
+  ethnicity classification. *Statistics and Public Policy* 5, 1–13.
+- Imai, K., & Khanna, K. (2016). Improving ecological inference by
+  predicting individual ethnicity from voter registration records.
+  *Political Analysis* 24, 263–272.
+- Imai, K., Olivella, S., & Rosenman, E. T. R. (2022). Addressing
+  Census data problems in race imputation via fully Bayesian Improved
+  Surname Geocoding and name supplements. *Science Advances* 8,
+  eadc9824. ([arXiv:2205.06129](https://arxiv.org/abs/2205.06129)) —
+  the methodology paper from which the (k − 1) prior-division formula
+  is derived.
+- Rosenman, E. T. R., Olivella, S., & Imai, K. (2023). Race and
+  ethnicity data for first, middle, and surnames. *Scientific Data*
+  10, 299.
+  <https://www.nature.com/articles/s41597-023-02202-2> — voter-file
+  dictionaries publishing both *P(race | name)* and *P(name | race)*
+  for first, middle, and last names.
+
+### Software
+
+- Khanna, K., Imai, K., Rosenman, E. T. R., & Olivella, S. (2021).
+  *wru: Who are You? Bayesian Prediction of Racial Category Using
+  Surname and Geolocation.* R package.
+  <https://github.com/kosukeimai/wru> — origin of the normalization
+  cascade ported here.

@@ -1,0 +1,33 @@
+Package: openBISG
+Title: Open Bayesian Improved Surname Geocoding for Race, Hispanic-Origin
+    and Sex Probabilities from 2020 U.S. Census Names
+Version: 0.2.0
+Authors@R:
+    person("openBISG", "contributors", role = c("aut", "cre"),
+           email = "noreply@example.com")
+Description: Lookup tables and a Naive-Bayes / BISG / BIFSG probability
+    calculator built from the U.S. Census Bureau's 2020 Decennial Census
+    frequently occurring first and last names tabulations and the
+    2020-2024 ACS Citizen Voting Age Population (CVAP) Special
+    Tabulation. Given any combination of first name, last name, and a
+    geography (ZIP / ZCTA, Census Tract, or Block Group), returns the
+    probability that the bearer belongs to each of six
+    race/Hispanic-origin groups, plus a probability of sex from the
+    first-name by-sex table. Includes a Shiny app that mirrors the
+    bundled lookup page.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends:
+    R (>= 4.0)
+Imports:
+    stats,
+    utils,
+    stringi
+Suggests:
+    shiny (>= 1.5),
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+URL: https://github.com/bernardlf/namedata
+BugReports: https://github.com/bernardlf/namedata/issues
+RoxygenNote: 7.3.0
