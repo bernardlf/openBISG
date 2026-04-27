@@ -394,14 +394,23 @@ predict_names <- function(data,
 
   recognized_names <- c("first", "middle", "last", "maiden")
   recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
+  recognized_all   <- c(recognized_names, recognized_geo)
 
-  name_cols <- intersect(recognized_names, names(data))
-  geo_present <- intersect(recognized_geo, names(data))
-  geo_col <- if (length(geo_present)) geo_present[1] else NA_character_
+  ## Case-insensitive detection: match each recognized key against
+  ## tolower(names(data)) and remember the actual (mixed-case) column
+  ## name. On duplicate matches (e.g. both `First` and `FIRST`), the
+  ## first occurrence wins.
+  lower_names <- tolower(names(data))
+  match_idx   <- match(recognized_all, lower_names)
+  col_map     <- stats::setNames(names(data)[match_idx], recognized_all)
+
+  name_cols   <- recognized_names[!is.na(col_map[recognized_names])]
+  geo_present <- recognized_geo[!is.na(col_map[recognized_geo])]
+  geo_col     <- if (length(geo_present)) geo_present[1] else NA_character_
 
   if (length(name_cols) == 0L && is.na(geo_col)) {
-    stop("No recognized columns in `data`. Expected any of: ",
-         paste(c(recognized_names, recognized_geo), collapse = ", "), ".",
+    stop("No recognized columns in `data`. Expected any of (case-insensitive): ",
+         paste(recognized_all, collapse = ", "), ".",
          call. = FALSE)
   }
 
@@ -423,13 +432,18 @@ predict_names <- function(data,
     val
   }
 
-  fc <- if ("first"  %in% name_cols) "first"  else NA_character_
-  mc <- if ("middle" %in% name_cols) "middle" else NA_character_
-  lc <- if ("last"   %in% name_cols) "last"   else NA_character_
-  xc <- if ("maiden" %in% name_cols) "maiden" else NA_character_
-  zc <- if (!is.na(geo_col) && geo_col == "zcta")        "zcta"        else NA_character_
-  tc <- if (!is.na(geo_col) && geo_col == "tract")       "tract"       else NA_character_
-  bc <- if (!is.na(geo_col) && geo_col == "block_group") "block_group" else NA_character_
+  pick <- function(key) {
+    if (key %in% name_cols || (!is.na(geo_col) && key == geo_col)) {
+      unname(col_map[[key]])
+    } else NA_character_
+  }
+  fc <- pick("first")
+  mc <- pick("middle")
+  lc <- pick("last")
+  xc <- pick("maiden")
+  zc <- pick("zcta")
+  tc <- pick("tract")
+  bc <- pick("block_group")
 
   for (i in seq_len(n)) {
     pred <- tryCatch(
