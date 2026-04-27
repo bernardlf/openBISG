@@ -58,6 +58,10 @@ make_hit <- function(df, idx, matched_as, rule) {
 #'
 #' @param x Length-one character vector, or character vector of any length.
 #' @return A character vector (possibly empty).
+#' @examples
+#' tokenize_names("Maria Jose")        # c("Maria", "Jose")
+#' tokenize_names(c("Maria", "Jose"))  # treated as already tokenized
+#' tokenize_names(NULL)                # character(0)
 #' @export
 tokenize_names <- function(x) {
   if (is.null(x)) return(character(0))
@@ -95,6 +99,10 @@ tokenize_names <- function(x) {
 #'   `FALSE`.
 #' @return `NULL` if every table missed, otherwise the [lookup_name()]
 #'   result with `source` and `dataset` appended.
+#' @examples
+#' lookup_with_fallback("MICHAEL", tables = c("first", "last"))
+#' lookup_with_fallback("AABIDA",  tables = c("first", "last"),
+#'                       include_extra = TRUE)
 #' @export
 lookup_with_fallback <- function(name,
                                  tables = c("first", "last"),
@@ -136,6 +144,11 @@ lookup_with_fallback <- function(name,
 #'   otherwise returns one element per token, keyed by token. The
 #'   length of the result tells the caller how many evidence pieces to
 #'   feed into the Naive-Bayes combination.
+#' @examples
+#' ## "MARIA JOSE" hits the MARIAJOSE row as one evidence piece.
+#' lookup_compound_or_tokens(c("Maria", "Jose"))
+#' ## "JOHN SMITH" misses the joined form, so per-token lookup runs.
+#' lookup_compound_or_tokens(c("John", "Smith"))
 #' @export
 lookup_compound_or_tokens <- function(tokens,
                                       tables = c("first", "last"),
@@ -200,6 +213,11 @@ lookup_compound_or_tokens <- function(tokens,
 #'     \item{frequency}{The Census-published `FREQUENCY (COUNT)` for the
 #'       matched row.}
 #'   }
+#' @examples
+#' lookup_name("MICHAEL", table = "first")
+#' lookup_name("PENA",    table = "last")
+#' lookup_name("O'CONNOR", table = "last")    # "punctuation removed" rule
+#' lookup_name("SMITH JR", table = "last")    # "generational suffix removed"
 #' @export
 lookup_name <- function(name,
                         table = c("first", "last", "first_sex",
