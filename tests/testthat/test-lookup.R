@@ -286,6 +286,28 @@ test_that("predict_names ignores extra columns and is column-order agnostic", {
   expect_gt(out$p_hispanic[2], 0.9)
 })
 
+test_that("predict_names column detection is case-insensitive", {
+  df <- data.frame(First = c("Maria", "John"),
+                   LAST  = c("Garcia", "Smith"),
+                   ZCTA  = c("30307", "10001"),
+                   stringsAsFactors = FALSE)
+  out <- predict_names(df)
+  expect_equal(names(out),
+               c(paste0("p_", race_groups()), "p_female"))
+  ## Same answers as the lowercase version.
+  ref <- predict_names(data.frame(first = c("Maria", "John"),
+                                  last  = c("Garcia", "Smith"),
+                                  zcta  = c("30307", "10001"),
+                                  stringsAsFactors = FALSE))
+  expect_equal(out, ref)
+  ## And mixed-case Block_Group beats ZCTA.
+  df2 <- data.frame(First = "Maria", Last = "Garcia",
+                    Block_Group = "010010201001", ZCTA = "30307",
+                    stringsAsFactors = FALSE)
+  out2 <- predict_names(df2)
+  expect_equal(sum(out2[1, paste0("p_", race_groups())]), 1, tolerance = 1e-6)
+})
+
 test_that("predict_names errors on invalid input", {
   expect_error(predict_names(data.frame(foo = 1)),
                "No recognized columns")

@@ -78,9 +78,10 @@ predict_sex("Maria Jose")  # P(female) ≈ 0.996 from MARIAJOSE row
 
 # Batch mode: predict_names() takes a data frame and auto-detects which of
 # the recognized columns are present (any subset of `first`, `middle`,
-# `last`, `maiden`, `zcta`, `tract`, `block_group` — column names must be
-# exactly these). Returns a 7-column data frame: 6 race probabilities plus
-# p_female (P(male) = 1 - p_female).
+# `last`, `maiden`, `zcta`, `tract`, `block_group` — matching is
+# case-insensitive, so `First`, `LAST`, `Block_Group` all work). Returns
+# a 7-column data frame: 6 race probabilities plus p_female (P(male) =
+# 1 - p_female).
 df <- data.frame(
   first  = c("Maria",  "John",  "Mary Ann"),
   middle = c("Jose",    NA,      NA),
