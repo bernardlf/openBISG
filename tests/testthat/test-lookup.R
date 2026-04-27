@@ -218,28 +218,26 @@ test_that("predict_sex with a token absent from the sex table reports n=0", {
   expect_null(pred$probs)
 })
 
-test_that("predict_names appends per-row probability columns to a data frame", {
+test_that("predict_names returns the fixed 7-column probability frame", {
   df <- data.frame(
-    fn = c("Maria",     "John",  "Mary Ann"),
-    mn = c("Jose",       NA,      NA),
-    ln = c("Garcia",    "Smith", "Johnson"),
-    mx = c(NA,           NA,     "Lopez"),
+    first  = c("Maria",     "John",  "Mary Ann"),
+    middle = c("Jose",       NA,      NA),
+    last   = c("Garcia",    "Smith", "Johnson"),
+    maiden = c(NA,           NA,     "Lopez"),
     stringsAsFactors = FALSE
   )
-  out <- predict_names(df, first = "fn", middle = "mn",
-                       last = "ln", maiden = "mx")
-  ## Original columns preserved.
-  expect_equal(names(out)[1:4], c("fn", "mn", "ln", "mx"))
-  ## Eight new probability columns appended.
-  expect_true(all(paste0("p_", race_groups()) %in% names(out)))
-  expect_true(all(paste0("p_", sex_groups())  %in% names(out)))
+  out <- predict_names(df)
+  ## Output is exactly the 7 probability columns, no input passthrough.
+  expect_equal(names(out),
+               c(paste0("p_", race_groups()), "p_female"))
+  expect_equal(nrow(out), 3L)
   ## Row 1 (Maria + Jose + Garcia, no maiden): heavily Hispanic, female.
   expect_gt(out$p_hispanic[1], 0.9)
   expect_gt(out$p_female[1],   0.9)
-  ## Row 2 (John + Smith): white-leaning, male.
-  expect_gt(out$p_white[2], 0.5)
-  expect_gt(out$p_male[2],  0.9)
-  ## Row 3 (Mary Ann compound + Johnson + maiden Lopez): maiden replaces last.
+  ## Row 2 (John + Smith): white-leaning, male (p_female near zero).
+  expect_gt(out$p_white[2],  0.5)
+  expect_lt(out$p_female[2], 0.1)
+  ## Row 3 (Mary Ann compound + Johnson + maiden Lopez): female compound.
   expect_gt(out$p_female[3], 0.9)
   ## Each row's race probs sum to 1.
   for (i in seq_len(nrow(out))) {
@@ -248,58 +246,78 @@ test_that("predict_names appends per-row probability columns to a data frame", {
   }
 })
 
-test_that("predict_names with subset of columns and prefix override works", {
-  df <- data.frame(surname = c("Smith", "Garcia", "Wang"),
+test_that("predict_names works with a subset of columns (last only)", {
+  df <- data.frame(last = c("Smith", "Garcia", "Wang"),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df, last = "surname", prefix = "prob_")
-  expect_true("prob_white"  %in% names(out))
-  expect_true("prob_male"   %in% names(out))
-  ## With only a last name, sex columns are NA.
-  expect_true(all(is.na(out$prob_male)))
-  expect_true(all(is.na(out$prob_female)))
+  out <- predict_names(df)
+  expect_equal(names(out),
+               c(paste0("p_", race_groups()), "p_female"))
+  ## With only a last name, p_female is NA (no first-name field).
+  expect_true(all(is.na(out$p_female)))
   ## Race columns are populated.
-  expect_false(any(is.na(out$prob_hispanic)))
+  expect_false(any(is.na(out$p_hispanic)))
 })
 
-test_that("predict_names handles NA cells and preserves data class", {
+test_that("predict_names handles NA cells", {
   df <- data.frame(first = c("Maria", NA, "John"),
                    last  = c(NA,      "Garcia", NA),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df, first = "first", last = "last")
-  ## Row 1: first only → race prob populated.
+  out <- predict_names(df)
+  ## Row 1: first only → race + sex populated.
   expect_false(is.na(out$p_white[1]))
   expect_false(is.na(out$p_female[1]))
-  ## Row 2: last only → race prob populated, sex NA.
+  ## Row 2: last only → race populated, p_female NA.
   expect_false(is.na(out$p_hispanic[2]))
-  expect_true(is.na(out$p_male[2]))
-  ## Row 3: first only → race prob populated.
+  expect_true(is.na(out$p_female[2]))
+  ## Row 3: first only → race + sex populated; John skews male.
   expect_false(is.na(out$p_white[3]))
-  expect_gt(out$p_male[3], 0.9)
+  expect_lt(out$p_female[3], 0.1)
   expect_s3_class(out, "data.frame")
 })
 
-test_that("predict_names include_meta = TRUE adds n and surname_used columns", {
-  df <- data.frame(first = c("Maria",  "John"),
-                   last  = c("Smith",  "Garcia"),
-                   maiden = c("Garcia", NA),
+test_that("predict_names ignores extra columns and is column-order agnostic", {
+  df <- data.frame(extra = 1:2,
+                   last  = c("Smith", "Garcia"),
+                   first = c("John",  "Maria"),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df, first = "first", last = "last", maiden = "maiden",
-                       include_meta = TRUE)
-  expect_true(all(c("p_n_race_tokens", "p_n_sex_tokens", "p_surname_used")
-                  %in% names(out)))
-  expect_equal(out$p_n_race_tokens, c(2L, 2L))
-  expect_equal(out$p_n_sex_tokens,  c(1L, 1L))
-  expect_equal(out$p_surname_used, c("maiden", "last"))
+  out <- predict_names(df)
+  expect_equal(nrow(out), 2L)
+  expect_gt(out$p_white[1], 0.5)
+  expect_gt(out$p_hispanic[2], 0.9)
 })
 
 test_that("predict_names errors on invalid input", {
-  df <- data.frame(first = "Maria", last = "Garcia",
-                   stringsAsFactors = FALSE)
-  expect_error(predict_names(df), "at least one")
-  expect_error(predict_names(df, first = "no_such_col"),
-               "Column not found")
-  expect_error(predict_names(list(a = 1), first = "a"),
+  expect_error(predict_names(data.frame(foo = 1)),
+               "No recognized columns")
+  expect_error(predict_names(list(a = 1)),
                "must be a data.frame")
+})
+
+test_that("predict_names with geography folds in the BISG prior", {
+  df_no_geo <- data.frame(first = "Maria", last = "Garcia",
+                          stringsAsFactors = FALSE)
+  df_geo    <- data.frame(first = "Maria", last = "Garcia",
+                          zcta  = "30307",
+                          stringsAsFactors = FALSE)
+  out_no <- predict_names(df_no_geo)
+  out_yes <- predict_names(df_geo)
+  race_cols <- paste0("p_", race_groups())
+  ## Both rows are well-formed.
+  expect_equal(sum(out_no[1, race_cols]),  1, tolerance = 1e-6)
+  expect_equal(sum(out_yes[1, race_cols]), 1, tolerance = 1e-6)
+  ## Geography changes the posterior.
+  expect_false(isTRUE(all.equal(as.numeric(out_no[1, race_cols]),
+                                as.numeric(out_yes[1, race_cols]))))
+})
+
+test_that("predict_names picks the most specific geography column", {
+  ## Only `tract` is recognized when both `tract` and `zcta` are present;
+  ## block_group beats both. Here we just confirm tract beats zcta.
+  df <- data.frame(first = "Maria", last = "Garcia",
+                   tract = "01001020100", zcta = "30307",
+                   stringsAsFactors = FALSE)
+  out <- predict_names(df)
+  expect_equal(sum(out[1, paste0("p_", race_groups())]), 1, tolerance = 1e-6)
 })
 
 ## ---- Rosenman, Olivella, and Imai (2023) NotInCensus2020 fallback ----
@@ -376,9 +394,8 @@ test_that("predict_names(include_extra) populates probabilities for Rosenman-onl
   df <- data.frame(first = c("Maria", fe),
                    last  = c("Garcia", le),
                    stringsAsFactors = FALSE)
-  out_off <- predict_names(df, first = "first", last = "last")
-  out_on  <- predict_names(df, first = "first", last = "last",
-                           include_extra = TRUE)
+  out_off <- predict_names(df)
+  out_on  <- predict_names(df, include_extra = TRUE)
   ## Census row is identical either way.
   expect_equal(out_off$p_white[1], out_on$p_white[1])
   ## Rosenman row: NA without the extras, populated with them.
