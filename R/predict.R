@@ -337,271 +337,130 @@ predict_sex <- function(first = NULL) {
   predict_race(first = first)$sex
 }
 
-#' Append per-row race and sex probability columns to a data frame
+#' Vectorized BISG / BIFSG prediction over a data frame
 #'
-#' Vectorized version of [predict_race()] for batch processing. Given a
-#' data frame and the names of the columns that hold the first, middle,
-#' surname, and/or maiden-name strings (any subset is allowed), runs
-#' [predict_race()] on every row and appends the per-group probability
-#' columns to the input frame.
-#'
-#' Each name column may contain a single name, multiple whitespace-
-#' separated names (compound-first cascade applies for `first` /
-#' `middle`), or `NA` (the row contributes nothing for that field).
-#' When a row has no usable name in any column its appended cells are
-#' all `NA_real_`. Per-row behavior matches [predict_race()] exactly,
-#' including:
+#' Auto-detects which input columns are present in `data` and returns a
+#' fixed-shape data frame of per-row probabilities. Recognized columns
+#' (any subset, named exactly):
 #' \itemize{
-#'   \item compound-first lookup for given-name fields
-#'     (`"Mary Ann"` → `MARYANN`, `"Maria Jose"` → `MARIAJOSE`);
-#'   \item maiden replaces last in the combined estimate when
-#'     supplied;
-#'   \item sex computed from the `first` field only.
+#'   \item name fields: `first`, `middle`, `last`, `maiden`
+#'   \item geography fields: `zcta`, `tract`, `block_group`
 #' }
+#' If multiple geography columns are present the most specific one is
+#' used (`block_group` > `tract` > `zcta`). If no recognized columns are
+#' present, an error is raised.
 #'
-#' @param data A data frame (data.frame, tibble, or anything with `[[`
-#'   and `nrow()`). The class of `data` is preserved on return.
-#' @param first,middle,last,maiden Length-one character vectors naming
-#'   the columns of `data` that hold each name field. `NULL` means the
-#'   field is unused for every row. At least one must be non-`NULL`.
-#' @param prefix Prefix prepended to each appended column name
-#'   (default `"p_"`, giving `p_white`, `p_black`, …, `p_male`,
-#'   `p_female`).
-#' @param include_meta If `TRUE`, also appends three columns:
-#'   `n_race_tokens` (integer count of name tokens that fed the race
-#'   estimate), `n_sex_tokens` (integer count for sex), and
-#'   `surname_used` (`"maiden"` / `"last"` / `NA`). Default `FALSE`.
+#' Per-row behavior matches [predict_race()] exactly: compound-first
+#' cascade for given-name fields; per-token cascade for surname fields;
+#' maiden tokens replace last in the combined estimate; sex computed
+#' from the `first` field only. Race probabilities hold the
+#' BISG-combined posterior `P(R | name, G)` when a geography column is
+#' present and matched, falling back to the name-only posterior
+#' otherwise. Rows where nothing matched contain `NA_real_`.
+#'
+#' For a single per-call prediction or to inspect the per-token / sex
+#' detail, use [predict_race()] and [predict_sex()].
+#'
+#' @param data A data frame with any subset of the recognized columns
+#'   listed above.
 #' @param include_extra Forwarded to [predict_race()] — when `TRUE`,
 #'   names absent from Census 2020 are looked up against the
 #'   Rosenman, Olivella, and Imai (2023) NotInCensus2020 voter-file
-#'   tables. See [predict_race()] for details.
-#' @param zcta_col,tract_col,block_group_col Optional length-one
-#'   character giving the column of `data` that holds the geography ID
-#'   for each row (ZIP / ZCTA, tract FIPS, or BG FIPS). At most one may
-#'   be supplied. When given, each row's race posterior is folded with
-#'   the geographic prior under [predict_race()]'s BISG combination,
-#'   and the appended `<prefix>{race_groups()}` columns hold the
-#'   name-plus-geography posterior. Rows whose geography ID is missing
-#'   or absent from the bundled tables fall back to the name-only
-#'   posterior (or `NA_real_` if neither name nor geography matched).
+#'   tables. Default `FALSE`.
 #' @param geography_type `"cvap"` (default) or `"vap"` — selects the
-#'   bundled geography table used when `zcta_col` / `tract_col` /
-#'   `block_group_col` is supplied.
-#' @return `data` with new columns appended:
-#'   `<prefix>{race_groups()}` (six probabilities, sums to 1 per row),
-#'   `<prefix>{sex_groups()}` (two probabilities, sums to 1 per row),
-#'   plus the three meta columns if `include_meta = TRUE`. When a
-#'   geography column is supplied, two more meta columns appear:
-#'   `<prefix>geo_level` and `<prefix>geo_matched` (logical). Rows that
-#'   produced no race / no sex match contain `NA_real_` in those
-#'   columns.
+#'   bundled geography table used when a geography column is detected.
+#' @return A data frame with `nrow(data)` rows and 7 columns:
+#'   `p_white`, `p_black`, `p_aian`, `p_aapi`, `p_nh_multi`,
+#'   `p_hispanic` (race probabilities, summing to 1 per row when
+#'   matched), and `p_female` (`P(female | first)`; `1 - p_female`
+#'   gives `P(male)`). All cells are `NA_real_` for rows with no signal.
 #' @seealso [predict_race()], [predict_sex()], [geo_prior()].
 #' @examples
 #' df <- data.frame(
-#'   first  = c("Maria",     "John",  "Mary Ann"),
-#'   middle = c("Jose",       NA,      NA),
-#'   last   = c("Garcia",    "Smith", "Johnson"),
-#'   maiden = c(NA,           NA,     "Lopez"),
+#'   first = c("Maria",  "John",  "Mary Ann"),
+#'   last  = c("Garcia", "Smith", "Johnson"),
+#'   zcta  = c("30307",  "10001", "94110"),
 #'   stringsAsFactors = FALSE
 #' )
-#' predict_names(df,
-#'   first  = "first",
-#'   middle = "middle",
-#'   last   = "last",
-#'   maiden = "maiden")
+#' predict_names(df)
 #' @export
 predict_names <- function(data,
-                          first  = NULL,
-                          middle = NULL,
-                          last   = NULL,
-                          maiden = NULL,
-                          prefix = "p_",
-                          include_meta = FALSE,
                           include_extra = FALSE,
-                          zcta_col = NULL,
-                          tract_col = NULL,
-                          block_group_col = NULL,
                           geography_type = c("cvap", "vap")) {
-  geography_type <- match.arg(geography_type)
   if (!is.data.frame(data)) {
     stop("`data` must be a data.frame.", call. = FALSE)
   }
-  field_cols <- list(first = first, middle = middle,
-                     last = last, maiden = maiden)
-  field_cols <- field_cols[!vapply(field_cols, is.null, logical(1))]
-  if (length(field_cols) == 0L) {
-    stop("Provide at least one of `first`, `middle`, `last`, or `maiden`.",
+  geography_type <- match.arg(geography_type)
+
+  recognized_names <- c("first", "middle", "last", "maiden")
+  recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
+
+  name_cols <- intersect(recognized_names, names(data))
+  geo_present <- intersect(recognized_geo, names(data))
+  geo_col <- if (length(geo_present)) geo_present[1] else NA_character_
+
+  if (length(name_cols) == 0L && is.na(geo_col)) {
+    stop("No recognized columns in `data`. Expected any of: ",
+         paste(c(recognized_names, recognized_geo), collapse = ", "), ".",
          call. = FALSE)
-  }
-  geo_cols <- list(zcta = zcta_col, tract = tract_col,
-                   block_group = block_group_col)
-  geo_cols <- geo_cols[!vapply(geo_cols, is.null, logical(1))]
-  if (length(geo_cols) > 1L) {
-    stop("Provide at most one of `zcta_col`, `tract_col`, or `block_group_col`.",
-         call. = FALSE)
-  }
-  for (col in c(field_cols, geo_cols)) {
-    if (!is.character(col) || length(col) != 1L) {
-      stop("Column arguments must be length-one character strings ",
-           "naming columns of `data`.", call. = FALSE)
-    }
-    if (!col %in% names(data)) {
-      stop("Column not found in `data`: ", col, call. = FALSE)
-    }
   }
 
-  n         <- nrow(data)
+  n <- nrow(data)
   race_keys <- race_groups()
-  sex_keys  <- sex_groups()
+  race_out_cols <- paste0("p_", race_keys)
 
-  race_mat <- matrix(NA_real_, nrow = n, ncol = length(race_keys),
-                     dimnames = list(NULL, paste0(prefix, race_keys)))
-  sex_mat  <- matrix(NA_real_, nrow = n, ncol = length(sex_keys),
-                     dimnames = list(NULL, paste0(prefix, sex_keys)))
-  n_race   <- if (include_meta) integer(n)        else NULL
-  n_sex    <- if (include_meta) integer(n)        else NULL
-  surn     <- if (include_meta) rep(NA_character_, n) else NULL
-  geo_lvl  <- if (length(geo_cols)) rep(NA_character_, n) else NULL
-  geo_ok   <- if (length(geo_cols)) logical(n)            else NULL
+  out <- data.frame(
+    matrix(NA_real_, nrow = n, ncol = length(race_keys) + 1L,
+           dimnames = list(NULL, c(race_out_cols, "p_female"))),
+    check.names = FALSE
+  )
 
   cell <- function(col, i) {
-    if (is.null(col)) return(NULL)
+    if (is.na(col) || !nzchar(col) || !col %in% names(data)) return(NULL)
     val <- data[[col]][i]
     if (is.factor(val)) val <- as.character(val)
     if (is.na(val) || !nzchar(as.character(val))) return(NULL)
     val
   }
 
+  fc <- if ("first"  %in% name_cols) "first"  else NA_character_
+  mc <- if ("middle" %in% name_cols) "middle" else NA_character_
+  lc <- if ("last"   %in% name_cols) "last"   else NA_character_
+  xc <- if ("maiden" %in% name_cols) "maiden" else NA_character_
+  zc <- if (!is.na(geo_col) && geo_col == "zcta")        "zcta"        else NA_character_
+  tc <- if (!is.na(geo_col) && geo_col == "tract")       "tract"       else NA_character_
+  bc <- if (!is.na(geo_col) && geo_col == "block_group") "block_group" else NA_character_
+
   for (i in seq_len(n)) {
     pred <- tryCatch(
       predict_race(
-        first  = cell(first,  i),
-        middle = cell(middle, i),
-        last   = cell(last,   i),
-        maiden = cell(maiden, i),
+        first          = cell(fc, i),
+        middle         = cell(mc, i),
+        last           = cell(lc, i),
+        maiden         = cell(xc, i),
         include_extra  = include_extra,
-        zcta           = cell(geo_cols$zcta,        i),
-        tract          = cell(geo_cols$tract,       i),
-        block_group    = cell(geo_cols$block_group, i),
+        zcta           = cell(zc, i),
+        tract          = cell(tc, i),
+        block_group    = cell(bc, i),
         geography_type = geography_type
       ),
       error = function(e) NULL
     )
     if (is.null(pred)) next
+
+    race_probs <- NULL
     if (!is.null(pred$geography) && !is.null(pred$geography$combined)) {
-      race_mat[i, ] <- pred$geography$combined[race_keys]
+      race_probs <- pred$geography$combined
     } else if (!is.null(pred$combined)) {
-      race_mat[i, ] <- pred$combined$probs[race_keys]
+      race_probs <- pred$combined$probs
     }
-    if (include_meta && !is.null(pred$combined)) n_race[i] <- pred$combined$n
-    if (!is.null(pred$sex) && pred$sex$n >= 1L) {
-      sex_mat[i, ] <- pred$sex$probs[sex_keys]
-      if (include_meta) n_sex[i] <- pred$sex$n
+    if (!is.null(race_probs)) {
+      out[i, race_out_cols] <- race_probs[race_keys]
     }
-    if (include_meta && !is.null(pred$surname_used)) {
-      surn[i] <- pred$surname_used
-    }
-    if (length(geo_cols) && !is.null(pred$geography)) {
-      geo_lvl[i] <- pred$geography$level %||% NA_character_
-      geo_ok[i]  <- isTRUE(pred$geography$found)
+    if (!is.null(pred$sex) && !is.null(pred$sex$probs)) {
+      out$p_female[i] <- pred$sex$probs[["female"]]
     }
   }
 
-  out <- data
-  for (col in colnames(race_mat)) out[[col]] <- race_mat[, col]
-  for (col in colnames(sex_mat))  out[[col]] <- sex_mat[, col]
-  if (include_meta) {
-    out[[paste0(prefix, "n_race_tokens")]] <- n_race
-    out[[paste0(prefix, "n_sex_tokens")]]  <- n_sex
-    out[[paste0(prefix, "surname_used")]]  <- surn
-  }
-  if (length(geo_cols)) {
-    out[[paste0(prefix, "geo_level")]]   <- geo_lvl
-    out[[paste0(prefix, "geo_matched")]] <- geo_ok
-  }
   out
 }
-
-#' Convenience wrapper: combined race probabilities and sex probability per row
-#'
-#' Auto-detects which input columns are present in `data` (any subset of
-#' `first`, `middle`, `last`, `maiden`, `zcta`, `tract`, `block_group` —
-#' columns must be named exactly these) and returns a data frame holding
-#' the per-row combined race / Hispanic-origin probabilities (one column
-#' per [race_groups()] category) and the per-row sex probability
-#' `p_female`.
-#'
-#' If multiple geography columns are present, the most specific one is
-#' used (`block_group` > `tract` > `zcta`). If no recognized columns are
-#' present an error is raised.
-#'
-#' Race columns hold the BISG-combined posterior when a geography column
-#' is detected, otherwise the name-only posterior — i.e. the same vector
-#' [predict_names()] writes into its `p_<group>` columns. Sex is
-#' computed from the `first` field only (see [predict_sex()]). Rows
-#' where nothing matched contain `NA_real_`.
-#'
-#' @param data A data frame with any subset of the recognized columns
-#'   listed above.
-#' @param include_extra Forwarded to [predict_race()] / [predict_names()].
-#' @param geography_type `"cvap"` (default) or `"vap"`, forwarded to
-#'   [predict_names()] when a geography column is detected.
-#' @return A data frame with `nrow(data)` rows and 7 columns:
-#'   `p_white`, `p_black`, `p_aian`, `p_aapi`, `p_nh_multi`,
-#'   `p_hispanic` (race probabilities, summing to 1 per row when
-#'   matched), and `p_female` (`P(female | first name)`; `1 - p_female`
-#'   gives `P(male)`). All cells are `NA_real_` for rows with no signal.
-#' @seealso [predict_names()], [predict_race()].
-#' @examples
-#' df <- data.frame(
-#'   first = c("Maria", "John", "Mary Ann"),
-#'   last  = c("Garcia", "Smith", "Johnson"),
-#'   zcta  = c("30307", "10001", "94110"),
-#'   stringsAsFactors = FALSE
-#' )
-#' predict_top(df)
-#' @export
-predict_top <- function(data,
-                        include_extra = FALSE,
-                        geography_type = c("cvap", "vap")) {
-  if (!is.data.frame(data)) stop("`data` must be a data.frame.", call. = FALSE)
-  geography_type <- match.arg(geography_type)
-
-  recognized_names <- c("first", "middle", "last", "maiden")
-  recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
-
-  name_args <- intersect(recognized_names, names(data))
-  geo_present <- intersect(recognized_geo, names(data))
-  geo_arg <- if (length(geo_present)) geo_present[1] else NA_character_
-
-  if (length(name_args) == 0L && is.na(geo_arg)) {
-    stop("No recognized columns in `data`. Expected any of: ",
-         paste(c(recognized_names, recognized_geo), collapse = ", "), ".",
-         call. = FALSE)
-  }
-
-  call_args <- list(data = data,
-                    prefix = ".__top_",
-                    include_extra = include_extra,
-                    geography_type = geography_type)
-  for (a in name_args) call_args[[a]] <- a
-  if (!is.na(geo_arg)) call_args[[paste0(geo_arg, "_col")]] <- geo_arg
-
-  scored <- do.call(predict_names, call_args)
-
-  race_keys <- race_groups()
-  out_race_cols <- paste0("p_", race_keys)
-  src_race_cols <- paste0(".__top_", race_keys)
-
-  out <- data.frame(matrix(NA_real_, nrow = nrow(scored),
-                           ncol = length(race_keys),
-                           dimnames = list(NULL, out_race_cols)),
-                    check.names = FALSE)
-  for (j in seq_along(race_keys)) {
-    out[[out_race_cols[j]]] <- as.numeric(scored[[src_race_cols[j]]])
-  }
-  out$p_female <- as.numeric(scored[[".__top_female"]])
-  out
-}
-
-`%||%` <- function(a, b) if (is.null(a)) b else a
