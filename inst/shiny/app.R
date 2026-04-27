@@ -1,4 +1,4 @@
-## openBISG Shiny app — mirrors the bundled index.html lookup page.
+## openBISG Shiny app
 ## Launched via openBISG::run_app().
 
 library(shiny)
