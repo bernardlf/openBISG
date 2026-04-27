@@ -69,25 +69,31 @@ predict_race(first = "AABIDA", include_extra = TRUE)
 #> $combined$probs reads the AABIDA row from first_names_extra
 #
 # Same flag on the data-frame interface:
-predict_names(df, first = "first", last = "last", include_extra = TRUE)
+predict_names(df, include_extra = TRUE)
 
 # Sex uses ONLY the first name field (middle is excluded). Compound
 # cascade still applies, so "Maria Jose" reads the MARIAJOSE row.
 predict_sex("Michael")
 predict_sex("Maria Jose")  # P(female) ≈ 0.996 from MARIAJOSE row
 
-# Batch mode: append per-row probability columns to a data frame.
+# Batch mode: predict_names() takes a data frame and auto-detects which of
+# the recognized columns are present (any subset of `first`, `middle`,
+# `last`, `maiden`, `zcta`, `tract`, `block_group` — column names must be
+# exactly these). Returns a 7-column data frame: 6 race probabilities plus
+# p_female (P(male) = 1 - p_female).
 df <- data.frame(
   first  = c("Maria",  "John",  "Mary Ann"),
   middle = c("Jose",    NA,      NA),
   last   = c("Garcia", "Smith", "Johnson"),
   maiden = c(NA,        NA,     "Lopez"),
+  zcta   = c("30307",  "10001", "94110"),
   stringsAsFactors = FALSE
 )
-predict_names(df, first = "first", middle = "middle",
-              last = "last", maiden = "maiden")
-#> appends p_white, p_black, p_aian, p_aapi, p_nh_multi,
-#> p_hispanic, p_male, p_female to the data frame.
+predict_names(df)
+#>      p_white     p_black ... p_hispanic   p_female
+#> 1 0.01400823 0.000446167 ... 0.98006158 0.99764726
+#> 2 0.86265605 0.096371682 ... 0.00913621 0.00208088
+#> 3 0.88144100 0.038691292 ... 0.02007915 0.99907737
 
 # Geography-aware (BISG): fold a ZIP / tract / block-group prior into the
 # name posterior. At most one of zcta / tract / block_group per call.
@@ -98,37 +104,17 @@ predict_race(last = "Smith",  tract = "01001020100", geography_type = "vap")
 geo_prior(zcta = "00601")              # ZCTA in Puerto Rico (CVAP)
 geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 geo_prior(block_group = "010010201001", type = "vap")
-
-# Vectorized: name a column of `df` that holds the geography ID.
-df$zip <- c("30307", "10001", "94110")
-predict_names(df, first = "first", last = "last", zcta_col = "zip")
 ```
 
-Also exported: `predict_names()` (vectorized data-frame interface that
-appends per-row probability columns), `predict_top()` (auto-detects
-recognized columns and returns the BISG-combined per-row race
-probabilities plus `p_female`, using all available data per row),
-`lookup_name()` (single-table cascade lookup), `lookup_with_fallback()`
-(try a primary table then a secondary on miss),
-`lookup_compound_or_tokens()` (compound-first cascade for given-name
-fields), `tokenize_names()` (whitespace tokenizer), and
-`normalize_name()` (NFD + uppercase).
-
-```r
-# predict_top() auto-detects any subset of `first`, `middle`, `last`,
-# `maiden`, `zcta`, `tract`, `block_group` and returns the combined
-# (BISG when geography is present) per-row race probabilities plus
-# p_female. P(male) = 1 - p_female.
-df <- data.frame(
-  first = c("Maria",  "John",  "Mary Ann"),
-  last  = c("Garcia", "Smith", "Johnson"),
-  zcta  = c("30307",  "10001", "94110"),
-  stringsAsFactors = FALSE
-)
-predict_top(df)
-#>   p_white p_black p_aian p_aapi p_nh_multi p_hispanic p_female
-#> 1     ...     ...    ...    ...        ...        ...      ...
-```
+Also exported: `predict_names()` (auto-detects recognized columns in a
+data frame and returns a fixed 7-column data frame of per-row
+probabilities — see Quick start), `lookup_name()` (single-table cascade
+lookup), `lookup_with_fallback()` (try a primary table then a secondary
+on miss), `lookup_compound_or_tokens()` (compound-first cascade for
+given-name fields), `tokenize_names()` (whitespace tokenizer), and
+`normalize_name()` (NFD + uppercase). For per-call detail (token-level
+hits, surname source, geography metadata), use `predict_race()` and
+`predict_sex()` directly.
 
 ## Probability model
 
@@ -287,7 +273,7 @@ more than one raises an error.
 |---|---|---|
 | `geo_prior()` | `zcta=`, `tract=`, `block_group=` | `type = "cvap"` (default) or `"vap"` |
 | `predict_race()` | `zcta=`, `tract=`, `block_group=`, or `geography_probs=` (length-6 named numeric in `race_groups()` order) | `geography_type = "cvap"` (default) or `"vap"` |
-| `predict_names()` | `zcta_col=`, `tract_col=`, `block_group_col=` (column names of `data` holding the per-row ID) | `geography_type = "cvap"` (default) or `"vap"` |
+| `predict_names()` | data frame columns named `zcta`, `tract`, or `block_group` (auto-detected; most specific wins if multiple) | `geography_type = "cvap"` (default) or `"vap"` |
 
 ### Accepted ID formats
 
@@ -362,12 +348,11 @@ my_prior <- c(white = 0.40, black = 0.20, aian = 0.01,
 predict_race(first = "Jose", last = "Lopez",
              geography_probs = my_prior)
 
-# Vectorized: each row carries its own ZIP.
-df$zip <- c("30307", "10001", "94110")
-predict_names(df, first = "first", last = "last",
-              zcta_col = "zip", geography_type = "cvap")
-#> appends p_white..p_hispanic (name+geo), p_male/p_female,
-#> plus p_geo_level and p_geo_matched.
+# Vectorized: name the geography column `zcta` (or `tract` /
+# `block_group`) and predict_names() picks it up automatically.
+df$zcta <- c("30307", "10001", "94110")
+predict_names(df, geography_type = "cvap")
+#> 7-col data frame: p_white..p_hispanic (BISG when matched) + p_female.
 ```
 
 ## Rebuilding the bundled data
