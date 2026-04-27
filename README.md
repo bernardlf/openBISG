@@ -106,17 +106,19 @@ predict_names(df, first = "first", last = "last", zcta_col = "zip")
 
 Also exported: `predict_names()` (vectorized data-frame interface that
 appends per-row probability columns), `predict_top()` (auto-detects
-recognized columns and returns a 2-column data frame with the
-top-prediction race and sex labels per row), `lookup_name()`
-(single-table cascade lookup), `lookup_with_fallback()` (try a primary
-table then a secondary on miss), `lookup_compound_or_tokens()`
-(compound-first cascade for given-name fields), `tokenize_names()`
-(whitespace tokenizer), and `normalize_name()` (NFD + uppercase).
+recognized columns and returns the BISG-combined per-row race
+probabilities plus `p_female`, using all available data per row),
+`lookup_name()` (single-table cascade lookup), `lookup_with_fallback()`
+(try a primary table then a secondary on miss),
+`lookup_compound_or_tokens()` (compound-first cascade for given-name
+fields), `tokenize_names()` (whitespace tokenizer), and
+`normalize_name()` (NFD + uppercase).
 
 ```r
 # predict_top() auto-detects any subset of `first`, `middle`, `last`,
-# `maiden`, `zcta`, `tract`, `block_group` and returns just the best
-# (argmax) race and sex label per row.
+# `maiden`, `zcta`, `tract`, `block_group` and returns the combined
+# (BISG when geography is present) per-row race probabilities plus
+# p_female. P(male) = 1 - p_female.
 df <- data.frame(
   first = c("Maria",  "John",  "Mary Ann"),
   last  = c("Garcia", "Smith", "Johnson"),
@@ -124,10 +126,8 @@ df <- data.frame(
   stringsAsFactors = FALSE
 )
 predict_top(df)
-#>                                                          race    sex
-#> 1                                  Hispanic or Latino origin  Female
-#> 2                                  Non-Hispanic White alone   Male
-#> 3                                  Non-Hispanic White alone  Female
+#>   p_white p_black p_aian p_aapi p_nh_multi p_hispanic p_female
+#> 1     ...     ...    ...    ...        ...        ...      ...
 ```
 
 ## Probability model

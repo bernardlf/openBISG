@@ -522,35 +522,35 @@ predict_names <- function(data,
   out
 }
 
-#' Convenience wrapper: top race and sex prediction per row
+#' Convenience wrapper: combined race probabilities and sex probability per row
 #'
 #' Auto-detects which input columns are present in `data` (any subset of
 #' `first`, `middle`, `last`, `maiden`, `zcta`, `tract`, `block_group` —
-#' columns must be named exactly these) and returns a two-column data
-#' frame holding the single most-likely race / Hispanic-origin label and
-#' sex label per row.
+#' columns must be named exactly these) and returns a data frame holding
+#' the per-row combined race / Hispanic-origin probabilities (one column
+#' per [race_groups()] category) and the per-row sex probability
+#' `p_female`.
 #'
 #' If multiple geography columns are present, the most specific one is
 #' used (`block_group` > `tract` > `zcta`). If no recognized columns are
 #' present an error is raised.
 #'
-#' Per-row argmax: the bin with the largest probability wins (ties go to
-#' the first in [race_groups()] / [sex_groups()] order). Rows where
-#' nothing matched yield `NA` in the corresponding column. Race uses the
-#' name-plus-geography posterior when geography is supplied, otherwise
-#' the name-only posterior.
+#' Race columns hold the BISG-combined posterior when a geography column
+#' is detected, otherwise the name-only posterior — i.e. the same vector
+#' [predict_names()] writes into its `p_<group>` columns. Sex is
+#' computed from the `first` field only (see [predict_sex()]). Rows
+#' where nothing matched contain `NA_real_`.
 #'
 #' @param data A data frame with any subset of the recognized columns
 #'   listed above.
 #' @param include_extra Forwarded to [predict_race()] / [predict_names()].
 #' @param geography_type `"cvap"` (default) or `"vap"`, forwarded to
 #'   [predict_names()] when a geography column is detected.
-#' @param labels If `TRUE` (default), values are the human-readable
-#'   labels from [race_group_labels()] / [sex_group_labels()]. If
-#'   `FALSE`, the short keys from [race_groups()] / [sex_groups()].
-#' @return A data frame with `nrow(data)` rows and exactly two columns:
-#'   `race` and `sex`. Values are `NA_character_` for rows where no
-#'   prediction could be made.
+#' @return A data frame with `nrow(data)` rows and 7 columns:
+#'   `p_white`, `p_black`, `p_aian`, `p_aapi`, `p_nh_multi`,
+#'   `p_hispanic` (race probabilities, summing to 1 per row when
+#'   matched), and `p_female` (`P(female | first name)`; `1 - p_female`
+#'   gives `P(male)`). All cells are `NA_real_` for rows with no signal.
 #' @seealso [predict_names()], [predict_race()].
 #' @examples
 #' df <- data.frame(
@@ -563,8 +563,7 @@ predict_names <- function(data,
 #' @export
 predict_top <- function(data,
                         include_extra = FALSE,
-                        geography_type = c("cvap", "vap"),
-                        labels = TRUE) {
+                        geography_type = c("cvap", "vap")) {
   if (!is.data.frame(data)) stop("`data` must be a data.frame.", call. = FALSE)
   geography_type <- match.arg(geography_type)
 
@@ -591,31 +590,18 @@ predict_top <- function(data,
   scored <- do.call(predict_names, call_args)
 
   race_keys <- race_groups()
-  sex_keys  <- sex_groups()
-  race_cols <- paste0(".__top_", race_keys)
-  sex_cols  <- paste0(".__top_", sex_keys)
+  out_race_cols <- paste0("p_", race_keys)
+  src_race_cols <- paste0(".__top_", race_keys)
 
-  argmax_label <- function(cols, keys) {
-    vapply(seq_len(nrow(scored)), function(i) {
-      row <- as.numeric(unlist(scored[i, cols, drop = TRUE]))
-      if (all(is.na(row))) return(NA_character_)
-      keys[which.max(row)]
-    }, character(1))
+  out <- data.frame(matrix(NA_real_, nrow = nrow(scored),
+                           ncol = length(race_keys),
+                           dimnames = list(NULL, out_race_cols)),
+                    check.names = FALSE)
+  for (j in seq_along(race_keys)) {
+    out[[out_race_cols[j]]] <- as.numeric(scored[[src_race_cols[j]]])
   }
-
-  race_top <- argmax_label(race_cols, race_keys)
-  sex_top  <- argmax_label(sex_cols,  sex_keys)
-
-  if (labels) {
-    race_lab <- race_group_labels()
-    sex_lab  <- sex_group_labels()
-    race_top <- ifelse(is.na(race_top), NA_character_, race_lab[race_top])
-    sex_top  <- ifelse(is.na(sex_top),  NA_character_, sex_lab[sex_top])
-  }
-
-  data.frame(race = unname(race_top),
-             sex  = unname(sex_top),
-             stringsAsFactors = FALSE)
+  out$p_female <- as.numeric(scored[[".__top_female"]])
+  out
 }
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
