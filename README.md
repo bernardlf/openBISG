@@ -169,6 +169,26 @@ combined estimate; the last-name lookups are still recorded under
 Tokens absent from both tables are reported but excluded from the
 combined estimate.
 
+### Name matching cascade
+
+Modeled on the [`wru`](https://github.com/kosukeimai/wru) 
+R package (Khanna, Imai, Rosenman, and Olivella 2021; Imai and Khanna 2016). 
+Steps applied to the user-supplied name in order; the first hit wins:
+
+1. **exact** — trim, NFD-decompose + drop combining marks, uppercase
+   (`PEÑA` matches `PENA`).
+2. **punctuation removed** — drop non-alphanumerics except spaces
+   (`O'CONNOR` → `OCONNOR`).
+3. **punctuation and spaces removed** — also drop spaces
+   (`VAN DER BERG` → `VANDERBERG`).
+4. **generational suffix removed** (last names only) — strip `JR`, `SR`,
+   `II`, `III`, `IV`, `JUNIOR`, `SENIOR`, `THIRD`. `SR` only stripped if the
+   suffixed form is at least 7 characters.
+5. **first / second segment of a multi-part name** — split on hyphen, comma,
+   or space (`GARCIA-LOPEZ` → `GARCIA`, then `LOPEZ`).
+
+No fuzzy / edit-distance / phonetic matching.
+
 ### Combining across *k* matched tokens
 
 The package implements the Bayesian Improved Surname Geocoding (BISG)
@@ -330,26 +350,6 @@ predict_names(df, first = "first", last = "last",
 #> appends p_white..p_hispanic (name+geo), p_male/p_female,
 #> plus p_geo_level and p_geo_matched.
 ```
-
-## Name matching cascade
-
-Modeled on the [`wru`](https://github.com/kosukeimai/wru) 
-R package (Khanna, Imai, Rosenman, and Olivella 2021; Imai and Khanna 2016). 
-Steps applied to the user-supplied name in order; the first hit wins:
-
-1. **exact** — trim, NFD-decompose + drop combining marks, uppercase
-   (`PEÑA` matches `PENA`).
-2. **punctuation removed** — drop non-alphanumerics except spaces
-   (`O'CONNOR` → `OCONNOR`).
-3. **punctuation and spaces removed** — also drop spaces
-   (`VAN DER BERG` → `VANDERBERG`).
-4. **generational suffix removed** (last names only) — strip `JR`, `SR`,
-   `II`, `III`, `IV`, `JUNIOR`, `SENIOR`, `THIRD`. `SR` only stripped if the
-   suffixed form is at least 7 characters.
-5. **first / second segment of a multi-part name** — split on hyphen, comma,
-   or space (`GARCIA-LOPEZ` → `GARCIA`, then `LOPEZ`).
-
-No fuzzy / edit-distance / phonetic matching.
 
 ## Rebuilding the bundled data
 
