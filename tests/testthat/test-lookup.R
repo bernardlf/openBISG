@@ -226,7 +226,7 @@ test_that("predict_names returns the fixed 7-column probability frame", {
     maiden = c(NA,           NA,     "Lopez"),
     stringsAsFactors = FALSE
   )
-  out <- predict_names(df)
+  out <- predict_names(df, progress = FALSE)
   ## Output is exactly the 7 probability columns, no input passthrough.
   expect_equal(names(out),
                c(paste0("p_", race_groups()), "p_female"))
@@ -249,7 +249,7 @@ test_that("predict_names returns the fixed 7-column probability frame", {
 test_that("predict_names works with a subset of columns (last only)", {
   df <- data.frame(last = c("Smith", "Garcia", "Wang"),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df)
+  out <- predict_names(df, progress = FALSE)
   expect_equal(names(out),
                c(paste0("p_", race_groups()), "p_female"))
   ## With only a last name, p_female is NA (no first-name field).
@@ -262,7 +262,7 @@ test_that("predict_names handles NA cells", {
   df <- data.frame(first = c("Maria", NA, "John"),
                    last  = c(NA,      "Garcia", NA),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df)
+  out <- predict_names(df, progress = FALSE)
   ## Row 1: first only → race + sex populated.
   expect_false(is.na(out$p_white[1]))
   expect_false(is.na(out$p_female[1]))
@@ -280,7 +280,7 @@ test_that("predict_names ignores extra columns and is column-order agnostic", {
                    last  = c("Smith", "Garcia"),
                    first = c("John",  "Maria"),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df)
+  out <- predict_names(df, progress = FALSE)
   expect_equal(nrow(out), 2L)
   expect_gt(out$p_white[1], 0.5)
   expect_gt(out$p_hispanic[2], 0.9)
@@ -291,20 +291,21 @@ test_that("predict_names column detection is case-insensitive", {
                    LAST  = c("Garcia", "Smith"),
                    ZCTA  = c("30307", "10001"),
                    stringsAsFactors = FALSE)
-  out <- predict_names(df)
+  out <- predict_names(df, progress = FALSE)
   expect_equal(names(out),
                c(paste0("p_", race_groups()), "p_female"))
   ## Same answers as the lowercase version.
   ref <- predict_names(data.frame(first = c("Maria", "John"),
                                   last  = c("Garcia", "Smith"),
                                   zcta  = c("30307", "10001"),
-                                  stringsAsFactors = FALSE))
+                                  stringsAsFactors = FALSE),
+                       progress = FALSE)
   expect_equal(out, ref)
   ## And mixed-case Block_Group beats ZCTA.
   df2 <- data.frame(First = "Maria", Last = "Garcia",
                     Block_Group = "010010201001", ZCTA = "30307",
                     stringsAsFactors = FALSE)
-  out2 <- predict_names(df2)
+  out2 <- predict_names(df2, progress = FALSE)
   expect_equal(sum(out2[1, paste0("p_", race_groups())]), 1, tolerance = 1e-6)
 })
 
@@ -321,8 +322,8 @@ test_that("predict_names with geography folds in the BISG prior", {
   df_geo    <- data.frame(first = "Maria", last = "Garcia",
                           zcta  = "30307",
                           stringsAsFactors = FALSE)
-  out_no <- predict_names(df_no_geo)
-  out_yes <- predict_names(df_geo)
+  out_no  <- predict_names(df_no_geo, progress = FALSE)
+  out_yes <- predict_names(df_geo,    progress = FALSE)
   race_cols <- paste0("p_", race_groups())
   ## Both rows are well-formed.
   expect_equal(sum(out_no[1, race_cols]),  1, tolerance = 1e-6)
@@ -338,7 +339,7 @@ test_that("predict_names picks the most specific geography column", {
   df <- data.frame(first = "Maria", last = "Garcia",
                    tract = "01001020100", zcta = "30307",
                    stringsAsFactors = FALSE)
-  out <- predict_names(df)
+  out <- predict_names(df, progress = FALSE)
   expect_equal(sum(out[1, paste0("p_", race_groups())]), 1, tolerance = 1e-6)
 })
 
@@ -416,8 +417,8 @@ test_that("predict_names(include_extra) populates probabilities for Rosenman-onl
   df <- data.frame(first = c("Maria", fe),
                    last  = c("Garcia", le),
                    stringsAsFactors = FALSE)
-  out_off <- predict_names(df)
-  out_on  <- predict_names(df, include_extra = TRUE)
+  out_off <- predict_names(df, progress = FALSE)
+  out_on  <- predict_names(df, include_extra = TRUE, progress = FALSE)
   ## Census row is identical either way.
   expect_equal(out_off$p_white[1], out_on$p_white[1])
   ## Rosenman row: NA without the extras, populated with them.
