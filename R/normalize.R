@@ -7,6 +7,10 @@
 #' @param x A length-one character vector. `NA`, `NULL`, or empty strings
 #'   return `""`.
 #' @return A length-one character vector, possibly empty.
+#' @examples
+#' normalize_name("oconnor")  # "OCONNOR"
+#' normalize_name("  Smith ") # "SMITH"
+#' normalize_name(NA)         # ""
 #' @export
 normalize_name <- function(x) {
   if (is.null(x) || length(x) == 0L) return("")

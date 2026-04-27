@@ -6,6 +6,9 @@
 #' @return `race_groups()` is a length-6 character vector of short keys;
 #'   `race_group_labels()` is the same length and named by those keys, with
 #'   the full Census labels as values.
+#' @examples
+#' race_groups()
+#' race_group_labels()
 #' @export
 race_groups <- function() {
   c("white", "black", "aian", "aapi", "nh_multi", "hispanic")
@@ -28,6 +31,9 @@ race_group_labels <- function() {
 #'
 #' @return `sex_groups()` returns `c("male", "female")`;
 #'   `sex_group_labels()` returns `c(male = "Male", female = "Female")`.
+#' @examples
+#' sex_groups()
+#' sex_group_labels()
 #' @export
 sex_groups <- function() c("male", "female")
 
@@ -158,6 +164,21 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'   }
 #' @seealso [lookup_name()], [lookup_with_fallback()],
 #'   [lookup_compound_or_tokens()], [tokenize_names()], [predict_sex()].
+#' @examples
+#' ## Single name + surname.
+#' predict_race(first = "Maria", last = "Garcia")
+#'
+#' ## Compound first reads MARIAJOSE directly.
+#' predict_race(first = "Maria Jose", last = "Garcia")
+#'
+#' ## Maiden replaces last in the combined estimate.
+#' predict_race(first = "Maria", last = "Smith", maiden = "Garcia")
+#'
+#' ## BISG: fold a ZIP-level prior into the name posterior.
+#' predict_race(first = "Maria", last = "Garcia", zcta = "30307")
+#'
+#' ## Geography only: collapses to P(R | G).
+#' predict_race(zcta = "00601")
 #' @export
 predict_race <- function(first = NULL, middle = NULL,
                          last = NULL, maiden = NULL,
@@ -331,6 +352,10 @@ predict_race <- function(first = NULL, middle = NULL,
 #'   `"Maria Jose"` matches the `MARIAJOSE` row directly.
 #' @return The `sex` element described in [predict_race()], or `NULL`
 #'   if no first-name input was provided.
+#' @examples
+#' predict_sex("Michael")
+#' predict_sex("Maria")
+#' predict_sex("Maria Jose")  # P(female) ~ 0.996 from MARIAJOSE row
 #' @export
 predict_sex <- function(first = NULL) {
   if (length(tokenize_names(first)) == 0L) return(NULL)
