@@ -1,3 +1,24 @@
+# openBISG 0.3.5
+
+## Parallel `predict_names()`
+
+- New `n_cores = 1L` argument. When set to a value > 1, rows are split
+  into `n_cores` chunks and processed via `parallel::mclapply`
+  (fork-based, so the ~22 MB bundled lookup tables are shared via
+  copy-on-write with no per-worker export cost). Output is
+  bit-for-bit identical to the serial path.
+- On Windows fork is unavailable; `mclapply` silently falls back to
+  serial — pass `n_cores = 1L` to suppress the warning.
+- The per-row progress bar is replaced by a single start / finish
+  status line in the parallel path (workers can't synchronize
+  `stderr` cleanly).
+- Internal refactor: per-row work is now a closure that fills a
+  pre-allocated numeric matrix, so the serial path benefits too (no
+  more per-row `data.frame[i, ] <- ...` assignment).
+
+Observed speedup on a 10,000-row benchmark in a 4-core container:
+`1×` (1 core, 160 s) → `1.4×` (2 cores) → `3.2×` (4 cores).
+
 # openBISG 0.3.0
 
 User-facing changes since `v0.2`.

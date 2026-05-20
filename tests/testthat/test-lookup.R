@@ -343,6 +343,33 @@ test_that("predict_names picks the most specific geography column", {
   expect_equal(sum(out[1, paste0("p_", race_groups())]), 1, tolerance = 1e-6)
 })
 
+test_that("predict_names parallel path matches the serial path", {
+  skip_on_os("windows")  # fork unavailable; mclapply falls back to serial
+  df <- data.frame(
+    first = c("Maria",  "John",  "Mary Ann", "Aiden",  "Sofia"),
+    last  = c("Garcia", "Smith", "Johnson",  "Wong",   "Lopez"),
+    zcta  = c("30307",  "10001", "94110",    "94110",  "30307"),
+    stringsAsFactors = FALSE
+  )
+  serial   <- predict_names(df, progress = FALSE)
+  parallel <- predict_names(df, progress = FALSE, n_cores = 2L)
+  expect_equal(parallel, serial)
+  expect_equal(names(parallel),
+               c(paste0("p_", race_groups()), "p_female"))
+  expect_equal(nrow(parallel), nrow(df))
+})
+
+test_that("predict_names errors on invalid n_cores", {
+  df <- data.frame(first = "Maria", last = "Garcia",
+                   stringsAsFactors = FALSE)
+  expect_error(predict_names(df, n_cores = 0L,    progress = FALSE),
+               "positive integer")
+  expect_error(predict_names(df, n_cores = -1L,   progress = FALSE),
+               "positive integer")
+  expect_error(predict_names(df, n_cores = "two", progress = FALSE),
+               "positive integer")
+})
+
 ## ---- Rosenman, Olivella, and Imai (2023) NotInCensus2020 fallback ----
 
 test_that("Rosenman extra tables are present and well-formed", {
