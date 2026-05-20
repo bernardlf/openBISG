@@ -397,7 +397,17 @@ predict_sex <- function(first = NULL) {
 #' @param progress If `TRUE` (default), prints a one-line text progress
 #'   bar to `stderr` showing percent complete, elapsed time, and an
 #'   estimated time remaining. Pass `FALSE` to suppress (e.g. inside
-#'   non-interactive scripts or when capturing output).
+#'   non-interactive scripts or when capturing output). The bar is only
+#'   drawn for the serial path (`n_cores == 1L`); in the parallel path
+#'   it is replaced by a single start / finish status line.
+#' @param n_cores Number of worker processes to use. Default `1L`
+#'   (serial). When `n_cores > 1L`, rows are split into `n_cores`
+#'   chunks and processed via `parallel::mclapply` (fork-based, so
+#'   the large bundled lookup tables are shared via copy-on-write —
+#'   no per-worker export cost). On Windows fork is unavailable and
+#'   `mclapply` silently falls back to serial; pass `n_cores = 1L`
+#'   there to suppress the warning. Capped at
+#'   `min(n_cores, parallel::detectCores(), nrow(data))`.
 #' @return A data frame with `nrow(data)` rows and 7 columns:
 #'   `p_white`, `p_black`, `p_aian`, `p_aapi`, `p_nh_multi`,
 #'   `p_hispanic` (race probabilities, summing to 1 per row when
@@ -412,15 +422,25 @@ predict_sex <- function(first = NULL) {
 #'   stringsAsFactors = FALSE
 #' )
 #' predict_names(df)
+#'
+#' \dontrun{
+#' ## Parallelize a large data frame across 8 cores (Unix / macOS).
+#' predict_names(big_df, n_cores = 8L)
+#' }
 #' @export
 predict_names <- function(data,
                           include_extra = FALSE,
                           geography_type = c("cvap", "vap"),
-                          progress = TRUE) {
+                          progress = TRUE,
+                          n_cores = 1L) {
   if (!is.data.frame(data)) {
     stop("`data` must be a data.frame.", call. = FALSE)
   }
   geography_type <- match.arg(geography_type)
+  if (!is.numeric(n_cores) || length(n_cores) != 1L || n_cores < 1L) {
+    stop("`n_cores` must be a single positive integer.", call. = FALSE)
+  }
+  n_cores <- as.integer(n_cores)
 
   recognized_names <- c("first", "middle", "last", "maiden")
   recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
@@ -447,12 +467,7 @@ predict_names <- function(data,
   n <- nrow(data)
   race_keys <- race_groups()
   race_out_cols <- paste0("p_", race_keys)
-
-  out <- data.frame(
-    matrix(NA_real_, nrow = n, ncol = length(race_keys) + 1L,
-           dimnames = list(NULL, c(race_out_cols, "p_female"))),
-    check.names = FALSE
-  )
+  out_cols <- c(race_out_cols, "p_female")
 
   cell <- function(col, i) {
     if (is.na(col) || !nzchar(col) || !col %in% names(data)) return(NULL)
@@ -467,15 +482,57 @@ predict_names <- function(data,
       unname(col_map[[key]])
     } else NA_character_
   }
-  fc <- pick("first")
-  mc <- pick("middle")
-  lc <- pick("last")
-  xc <- pick("maiden")
-  zc <- pick("zcta")
-  tc <- pick("tract")
+  fc <- pick("first");  mc <- pick("middle")
+  lc <- pick("last");   xc <- pick("maiden")
+  zc <- pick("zcta");   tc <- pick("tract")
   bc <- pick("block_group")
 
-  show_progress <- isTRUE(progress) && n > 0L
+  ## Process a single row into a length-7 numeric vector
+  ## (race probs in race_keys order + p_female). Used by both paths.
+  process_row <- function(i) {
+    pred <- tryCatch(
+      predict_race(
+        first          = cell(fc, i),
+        middle         = cell(mc, i),
+        last           = cell(lc, i),
+        maiden         = cell(xc, i),
+        include_extra  = include_extra,
+        zcta           = cell(zc, i),
+        tract          = cell(tc, i),
+        block_group    = cell(bc, i),
+        geography_type = geography_type
+      ),
+      error = function(e) NULL
+    )
+    row <- rep(NA_real_, 7L)
+    if (is.null(pred)) return(row)
+    race_probs <- NULL
+    if (!is.null(pred$geography) && !is.null(pred$geography$combined)) {
+      race_probs <- pred$geography$combined
+    } else if (!is.null(pred$combined)) {
+      race_probs <- pred$combined$probs
+    }
+    if (!is.null(race_probs)) row[1:6] <- race_probs[race_keys]
+    if (!is.null(pred$sex) && !is.null(pred$sex$probs)) {
+      row[7] <- pred$sex$probs[["female"]]
+    }
+    row
+  }
+
+  ## Process a chunk of rows into an (length(idx) x 7) numeric matrix.
+  process_chunk <- function(idx) {
+    m <- matrix(NA_real_, nrow = length(idx), ncol = 7L)
+    for (j in seq_along(idx)) m[j, ] <- process_row(idx[j])
+    m
+  }
+
+  n_cores <- min(n_cores, max(1L, n))
+  use_parallel <- n_cores > 1L && n > 1L
+  if (use_parallel) {
+    n_cores <- min(n_cores, parallel::detectCores(logical = TRUE))
+  }
+
+  show_progress <- isTRUE(progress) && n > 0L && !use_parallel
   if (show_progress) {
     pb_start <- Sys.time()
     pb_step  <- max(1L, n %/% 100L)
@@ -497,42 +554,38 @@ predict_names <- function(data,
                   bar, round(100 * frac), elapsed, eta),
           file = stderr())
     }
-    pb_print(0L)  # initial draw
+    pb_print(0L)
   }
 
-  for (i in seq_len(n)) {
-    pred <- tryCatch(
-      predict_race(
-        first          = cell(fc, i),
-        middle         = cell(mc, i),
-        last           = cell(lc, i),
-        maiden         = cell(xc, i),
-        include_extra  = include_extra,
-        zcta           = cell(zc, i),
-        tract          = cell(tc, i),
-        block_group    = cell(bc, i),
-        geography_type = geography_type
-      ),
-      error = function(e) NULL
-    )
-    if (!is.null(pred)) {
-      race_probs <- NULL
-      if (!is.null(pred$geography) && !is.null(pred$geography$combined)) {
-        race_probs <- pred$geography$combined
-      } else if (!is.null(pred$combined)) {
-        race_probs <- pred$combined$probs
-      }
-      if (!is.null(race_probs)) {
-        out[i, race_out_cols] <- race_probs[race_keys]
-      }
-      if (!is.null(pred$sex) && !is.null(pred$sex$probs)) {
-        out$p_female[i] <- pred$sex$probs[["female"]]
-      }
+  out_mat <- matrix(NA_real_, nrow = n, ncol = 7L,
+                    dimnames = list(NULL, out_cols))
+
+  if (use_parallel) {
+    if (isTRUE(progress)) {
+      cat(sprintf("predict_names: processing %d rows on %d cores...\n",
+                  n, n_cores),
+          file = stderr())
     }
-
-    if (show_progress && (i == n || i %% pb_step == 0L)) pb_print(i)
+    par_start <- Sys.time()
+    chunks <- split(seq_len(n), cut(seq_len(n), n_cores, labels = FALSE))
+    results <- parallel::mclapply(chunks, process_chunk, mc.cores = n_cores)
+    out_mat <- do.call(rbind, results)
+    colnames(out_mat) <- out_cols
+    if (isTRUE(progress)) {
+      cat(sprintf("predict_names: done in %.1fs (%.0f rows/s).\n",
+                  as.numeric(difftime(Sys.time(), par_start, units = "secs")),
+                  n / max(1e-9,
+                          as.numeric(difftime(Sys.time(), par_start,
+                                              units = "secs")))),
+          file = stderr())
+    }
+  } else {
+    for (i in seq_len(n)) {
+      out_mat[i, ] <- process_row(i)
+      if (show_progress && (i == n || i %% pb_step == 0L)) pb_print(i)
+    }
+    if (show_progress) cat("\n", file = stderr())
   }
-  if (show_progress) cat("\n", file = stderr())
 
-  out
+  as.data.frame(out_mat, stringsAsFactors = FALSE)
 }
