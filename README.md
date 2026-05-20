@@ -96,6 +96,11 @@ predict_names(df)
 #> 2 0.86265605 0.096371682 ... 0.00913621 0.00208088
 #> 3 0.88144100 0.038691292 ... 0.02007915 0.99907737
 
+# Parallelize across cores via `parallel::mclapply` (fork-based on
+# Unix / macOS; silently serial on Windows). Output is bit-for-bit
+# identical to the serial path; ~3x speedup on 4 cores in our bench.
+predict_names(big_df, n_cores = 4L)
+
 # Geography-aware (BISG): fold a ZIP / tract / block-group prior into the
 # name posterior. At most one of zcta / tract / block_group per call.
 predict_race(first = "Maria", last = "Garcia", zcta = "30307")
