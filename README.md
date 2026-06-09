@@ -83,6 +83,51 @@ predict_names(df)
 predict_names(big_df, n_cores = 4L)
 ```
 
+For large files, prefer `predict_demog()` below — same model, orders
+of magnitude faster.
+
+### Vectorized engine and custom dictionaries: `predict_demog()`
+
+`predict_demog()` (new in 0.4.0) is the vectorized successor to
+`predict_names()`: the same probability model and matching cascade,
+but computed via deduplicated lookups and matrix algebra. On our
+benchmarks it runs ~23x faster on the bundled 10,000-row fixture and
+~200x faster (~25,000 rows/s) on a 100,000-row file with realistic
+name duplication. With the bundled tables its race columns reproduce
+`predict_names()` to 1e-12.
+
+It also generalizes the tables: supply your own name dictionary
+and/or geography table and the prediction categories are read off the
+supplied tables' columns — the engine is not wedded to the six race /
+Hispanic-origin groups. Any component you don't supply falls back to
+the bundled Census tables (and then a supplied component must use the
+six bundled race categories).
+
+```r
+# Drop-in fast path for the bundled race model (no p_female column —
+# sex is just another category grouping here, see below).
+predict_demog(df)
+
+# Sex via the bundled sex table as a custom dictionary.
+predict_demog(data.frame(first = c("Michael", "Maria Jose")),
+              name_dict = list(first = first_names_sex))
+#> p_male, p_female
+
+# Fully custom categories: your own name dictionary + geography table.
+nd <- data.frame(name  = c("ALICE", "BOB"),
+                 urban = c(0.8, 0.3), rural = c(0.2, 0.7))
+gd <- data.frame(geoid = c("A1", "B2"),
+                 urban = c(0.9, 0.2), rural = c(0.1, 0.8))
+predict_demog(data.frame(first = c("Alice", "Bob"),
+                         geoid = c("A1", "B2")),
+              name_dict = nd, geo_dict = gd,
+              prior = c(urban = 0.5, rural = 0.5))
+#> p_urban, p_rural
+```
+
+See `?predict_demog` for dictionary schemas, the category-matching
+rules, and how the marginal prior is derived when `prior` is omitted.
+
 ### Name fields
 
 ```r

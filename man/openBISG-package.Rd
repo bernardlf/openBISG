@@ -21,8 +21,11 @@ probability of sex from the first-name-by-sex table.
 \item{\code{\link[=predict_race]{predict_race()}}}{Single-call prediction with full per-token /
 geography metadata.}
 \item{\code{\link[=predict_sex]{predict_sex()}}}{Single-call sex probability from a first name.}
-\item{\code{\link[=predict_names]{predict_names()}}}{Vectorized predictions over a data frame
-with auto-detected name and geography columns.}
+\item{\code{\link[=predict_names]{predict_names()}}}{Batch predictions over a data frame
+with auto-detected name and geography columns (race + sex).}
+\item{\code{\link[=predict_demog]{predict_demog()}}}{Vectorized batch engine — same model,
+orders of magnitude faster, with optional user-supplied name
+dictionaries, geography tables, and category groupings.}
 \item{\code{\link[=geo_prior]{geo_prior()}}}{Geographic prior \code{P(R | G)} from the bundled
 CVAP / VAP tables.}
 \item{\code{\link[=run_app]{run_app()}}}{Launch the bundled Shiny lookup app.}
