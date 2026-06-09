@@ -37,51 +37,32 @@ The package ships eleven lazy-loaded data objects (~22 MB compressed):
 ```r
 library(openBISG)
 
-# Single given name + single surname.
-predict_race(first = "MARIA", last = "GARCIA")
-#> $tokens$first    : list( "MARIA"  -> hit )
-#> $tokens$last     : list( "GARCIA" -> hit )
-#> $surname_used    : "last"
-#> $combined$probs  : 6-vector P(group | MARIA, GARCIA)
-#> $combined$n      : 2
+# Race / Hispanic-origin and sex probabilities from a name.
+predict_race(first = "Maria", last = "Garcia")
+#> $combined$probs : 6-vector P(group | MARIA, GARCIA)
+#> $sex$probs      : P(female | MARIA)
 
-# Compound given name → matches MARIAJOSE row directly (one token).
-predict_race(first = "Maria Jose")
-#> $combined$n = 1 ; sex P(female) ≈ 0.996  (MARIAJOSE row)
+# Full BISG: fold a geographic prior into the name posterior.
+predict_race(first = "Maria", last = "Garcia", zcta = "30307")
 
-# Two given names split across fields → two evidence pieces for race,
-# but sex uses ONLY the first-name field (middle names are excluded).
-predict_race(first = "Maria", middle = "Jose")
-#> $combined$n = 2 ; $sex$n = 1 ; sex P(female) ≈ 0.998  (MARIA row)
+# Batch: data frame in, data frame of probabilities out.
+predict_names(data.frame(first = "Maria", last = "Garcia", zcta = "30307"))
+```
 
-# Maiden name replaces last in the combined estimate.
-predict_race(first = "Maria", last = "Smith", maiden = "Garcia")
-#> $surname_used = "maiden"  ; $combined uses MARIA + GARCIA, ignoring SMITH
-#> $tokens$last  is still populated for reference
+The subsections below tour the main options. The **Probability model**
+and **Geography** sections further down document the underlying math,
+data sources, and accepted ID formats.
 
-# Vectors work too.
-predict_race(first = c("Maria", "Jose"), last = c("Garcia", "Lopez"))
+### Batch prediction over a data frame
 
-# Optional fall-through to Rosenman, Olivella, and Imai (2023) voter-file
-# additions for names absent from Census 2020.
-predict_race(first = "AABIDA", include_extra = TRUE)
-#> $tokens$first[["AABIDA"]]$dataset = "rosenman"
-#> $combined$probs reads the AABIDA row from first_names_extra
-#
-# Same flag on the data-frame interface:
-predict_names(df, include_extra = TRUE)
+`predict_names()` auto-detects which of the recognized columns are
+present in the input (any subset of `first`, `middle`, `last`, `maiden`,
+`zcta`, `tract`, `block_group`; matching is case-insensitive, so
+`First`, `LAST`, `Block_Group` all work) and returns a 7-column data
+frame: six race probabilities plus `p_female`
+(with `P(male) = 1 - p_female`).
 
-# Sex uses ONLY the first name field (middle is excluded). Compound
-# cascade still applies, so "Maria Jose" reads the MARIAJOSE row.
-predict_sex("Michael")
-predict_sex("Maria Jose")  # P(female) ≈ 0.996 from MARIAJOSE row
-
-# Batch mode: predict_names() takes a data frame and auto-detects which of
-# the recognized columns are present (any subset of `first`, `middle`,
-# `last`, `maiden`, `zcta`, `tract`, `block_group` — matching is
-# case-insensitive, so `First`, `LAST`, `Block_Group` all work). Returns
-# a 7-column data frame: 6 race probabilities plus p_female (P(male) =
-# 1 - p_female).
+```r
 df <- data.frame(
   first  = c("Maria",  "John",  "Mary Ann"),
   middle = c("Jose",    NA,      NA),
@@ -100,9 +81,37 @@ predict_names(df)
 # Unix / macOS; silently serial on Windows). Output is bit-for-bit
 # identical to the serial path; ~3x speedup on 4 cores in our bench.
 predict_names(big_df, n_cores = 4L)
+```
 
-# Geography-aware (BISG): fold a ZIP / tract / block-group prior into the
-# name posterior. At most one of zcta / tract / block_group per call.
+### Name fields
+
+```r
+# Compound given names match their own Census row: "Maria Jose" reads
+# MARIAJOSE directly (one evidence piece, ~99.6% female) instead of
+# combining the female MARIA row with the male JOSE row.
+predict_race(first = "Maria Jose")
+
+# Two given names split across fields → two evidence pieces for race,
+# but sex uses ONLY the first-name field (middle names are excluded).
+predict_race(first = "Maria", middle = "Jose")
+
+# A maiden name replaces the last name in the combined estimate;
+# $tokens$last is still populated for reference.
+predict_race(first = "Maria", last = "Smith", maiden = "Garcia")
+#> $surname_used = "maiden" ; combined uses MARIA + GARCIA, ignoring SMITH
+```
+
+> **Vector inputs are tokens, not rows.** Passing a character vector to
+> a single field — `predict_race(first = c("Maria", "Jose"))` — treats
+> the elements as multiple name tokens for **one person**, exactly like
+> `first = "Maria Jose"`. It does *not* return two predictions. To
+> predict for many people at once, put them in a data frame and use
+> `predict_names()`.
+
+### Geography
+
+```r
+# Pass at most one of zcta / tract / block_group per call.
 predict_race(first = "Maria", last = "Garcia", zcta = "30307")
 predict_race(last = "Smith",  tract = "01001020100", geography_type = "vap")
 
@@ -112,15 +121,42 @@ geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 geo_prior(block_group = "010010201001", type = "vap")
 ```
 
-Also exported: `predict_names()` (auto-detects recognized columns in a
-data frame and returns a fixed 7-column data frame of per-row
-probabilities — see Quick start), `lookup_name()` (single-table cascade
-lookup), `lookup_with_fallback()` (try a primary table then a secondary
-on miss), `lookup_compound_or_tokens()` (compound-first cascade for
-given-name fields), `tokenize_names()` (whitespace tokenizer), and
-`normalize_name()` (NFD + uppercase). For per-call detail (token-level
-hits, surname source, geography metadata), use `predict_race()` and
-`predict_sex()` directly.
+The default population basis is CVAP (citizens 18+); pass `"vap"` for
+everyone 18+. See **Geography** below for ID formats, data sources, and
+how to choose between the two bases.
+
+### Sex
+
+```r
+predict_sex("Michael")     # P(male) close to 1, from the MICHAEL row
+predict_sex("Maria Jose")  # P(female) ≈ 0.996 — the compound MARIAJOSE row
+```
+
+Sex is estimated from the `first` field only; middle names are
+deliberately excluded (see **Probability model**).
+
+### Names not in the Census tables
+
+```r
+# Opt-in fall-through to the Rosenman, Olivella, and Imai (2023)
+# voter-file dictionaries for names absent from Census 2020.
+predict_race(first = "AABIDA", include_extra = TRUE)
+#> $tokens$first[["AABIDA"]]$dataset = "rosenman"
+
+# Same flag on the batch interface.
+predict_names(df, include_extra = TRUE)
+```
+
+### Lower-level helpers
+
+The building blocks are exported too: `lookup_name()` (single-table
+cascade lookup), `lookup_with_fallback()` (try a primary table then a
+secondary on miss), `lookup_compound_or_tokens()` (compound-first
+cascade for given-name fields), `tokenize_names()` (whitespace
+tokenizer), and `normalize_name()` (NFD + uppercase). For per-call
+detail (token-level hits, surname source, geography metadata), use
+`predict_race()` and `predict_sex()` directly rather than the batch
+interface.
 
 ## Probability model
 
@@ -293,9 +329,10 @@ more than one raises an error.
   is also accepted.
 
 IDs that don't match any row in the bundled table return `NULL` from
-`geo_prior()`; in `predict_race()` / `predict_names()` the row falls
-back to the name-only posterior (and `geography$found` / the
-`p_geo_matched` column is set to `FALSE`).
+`geo_prior()`; in `predict_race()` the result falls back to the
+name-only posterior and `$geography$found` is set to `FALSE`. In
+`predict_names()` the affected row likewise falls back to the name-only
+posterior (the 7-column output carries no per-row match indicator).
 
 ### Bundled datasets, sources, and vintages
 
