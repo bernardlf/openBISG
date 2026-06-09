@@ -1,3 +1,62 @@
+# openBISG 0.4.0
+
+## New: `predict_demog()` — vectorized engine with pluggable dictionaries
+
+The primary race model gets a vectorized rewrite, exported as the new
+function `predict_demog(data, name_dict, geo_dict, prior, include_extra,
+geography_type)`. `predict_race()`, `predict_sex()`, and
+`predict_names()` are unchanged — `predict_demog()` is purely additive.
+
+- **Same probability model, orders of magnitude faster.** The
+  compound-first cascade for given-name fields, per-token cascade for
+  surname fields, maiden-replaces-last rule, Naive-Bayes combination
+  with the *(k − 1)* prior division, and the BISG geography fold are
+  all identical to `predict_names()` — the five-step matching cascade
+  is literally shared code (extracted from `lookup_name()` into the
+  internal `cascade_match()`, so the two paths cannot drift). But the
+  computation runs the cascade only once per *unique* name value and
+  does the combination as matrix algebra instead of a per-row
+  `predict_race()` call. On the bundled 10,000-row benchmark fixture:
+  82 s → 3.6 s (~23×, single core). On 100,000 rows with realistic
+  name duplication: 3.9 s, ~25,000 rows/s — roughly 200× the
+  ~120 rows/s serial `predict_names()` path.
+- **Identical output.** With the bundled tables, the race columns
+  reproduce `predict_names()` to 1e-12 (regression-tested against the
+  per-row path, including geography, `include_extra`, maiden handling,
+  compound names, NA cells, and unmatched-geography fallback).
+- **User-supplied name dictionaries.** `name_dict` accepts a data
+  frame (used for given names and surnames alike) or a
+  `list(first =, last =)`. Dictionaries need a `name` column plus two
+  or more numeric category columns (optional `frequency`); rows are
+  renormalized, names normalized, and lookups use the same cascade and
+  cross-table fallback as the bundled path.
+- **User-supplied geography.** `geo_dict` accepts a data frame with
+  `geoid` + category columns (optional `total`). A `geoid` input
+  column is recognized (and matched as-is); the bundled tables remain
+  the default, selected by `geography_type` with the usual ID
+  normalization.
+- **User-supplied category groupings.** The prediction categories are
+  read off the supplied tables' columns — the engine is no longer
+  wedded to the six race / Hispanic-origin groups. Any component not
+  supplied falls back to the bundled Census tables and their six race
+  categories; a user-supplied component must then use those same
+  categories (informative error otherwise). Sex is just another
+  grouping: `predict_demog(df, name_dict = list(first =
+  first_names_sex))` returns `p_male` / `p_female`.
+- **Explicit prior control.** New `prior` argument for the marginal
+  `P(category)`; when omitted it is derived from, in order: the
+  dictionary's `prior` attribute, a frequency-weighted average of the
+  dictionary rows, a `total`-weighted average of `geo_dict`, the
+  bundled Census prior (bundled categories only), and finally a
+  uniform prior with a warning whenever the prior materially enters
+  the computation.
+
+## Other
+
+- New test file `test-predict-demog.R`: equivalence with
+  `predict_names()` to 1e-12, custom-dictionary and custom-category
+  behavior, prior derivation, and the category-mismatch error paths.
+
 # openBISG 0.3.6
 
 Documentation release — the contents of PR #9, no code changes.

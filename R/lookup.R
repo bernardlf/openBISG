@@ -233,22 +233,34 @@ lookup_name <- function(name,
   df  <- table_df(table)
   is_last <- table %in% c("last", "last_extra")
 
+  m <- cascade_match(initial, env, is_last)
+  if (is.null(m)) return(NULL)
+  make_hit(df, m$idx, m$matched_as, m$rule)
+}
+
+## The five-step matching cascade against a single name -> row-index hash
+## environment. `initial` must already be normalized via normalize_name().
+## Returns list(idx, matched_as, rule) or NULL. Shared by lookup_name()
+## (bundled tables) and the vectorized predict_demog() path (which may
+## run it against user-supplied dictionaries) so the two can never
+## drift apart.
+cascade_match <- function(initial, env, is_last) {
   ## Step 1: exact
   idx <- get0(initial, envir = env, inherits = FALSE, ifnotfound = NA_integer_)
-  if (!is.na(idx)) return(make_hit(df, idx, initial, "exact"))
+  if (!is.na(idx)) return(list(idx = idx, matched_as = initial, rule = "exact"))
 
   ## Step 2: punctuation removed (keep spaces)
   no_punct <- gsub("[^A-Z0-9 ]", "", initial, perl = TRUE)
   if (no_punct != initial && nzchar(no_punct)) {
     idx <- get0(no_punct, envir = env, inherits = FALSE, ifnotfound = NA_integer_)
-    if (!is.na(idx)) return(make_hit(df, idx, no_punct, "punctuation removed"))
+    if (!is.na(idx)) return(list(idx = idx, matched_as = no_punct, rule = "punctuation removed"))
   }
 
   ## Step 3: punctuation and spaces removed
   no_space <- gsub(" ", "", no_punct, fixed = TRUE)
   if (no_space != no_punct && nzchar(no_space)) {
     idx <- get0(no_space, envir = env, inherits = FALSE, ifnotfound = NA_integer_)
-    if (!is.na(idx)) return(make_hit(df, idx, no_space, "punctuation and spaces removed"))
+    if (!is.na(idx)) return(list(idx = idx, matched_as = no_space, rule = "punctuation and spaces removed"))
   }
 
   ## Step 4: generational suffix removed (last names only)
@@ -256,7 +268,7 @@ lookup_name <- function(name,
     desuffixed <- strip_last_name_suffix(no_space)
     if (desuffixed != no_space && nzchar(desuffixed)) {
       idx <- get0(desuffixed, envir = env, inherits = FALSE, ifnotfound = NA_integer_)
-      if (!is.na(idx)) return(make_hit(df, idx, desuffixed, "generational suffix removed"))
+      if (!is.na(idx)) return(list(idx = idx, matched_as = desuffixed, rule = "generational suffix removed"))
     }
   }
 
@@ -265,11 +277,11 @@ lookup_name <- function(name,
     parts <- Filter(nzchar, strsplit(initial, "[-, ]+", perl = TRUE)[[1]])
     if (length(parts) >= 1L && parts[1L] != initial) {
       idx <- get0(parts[1L], envir = env, inherits = FALSE, ifnotfound = NA_integer_)
-      if (!is.na(idx)) return(make_hit(df, idx, parts[1L], "first segment of multi-part name"))
+      if (!is.na(idx)) return(list(idx = idx, matched_as = parts[1L], rule = "first segment of multi-part name"))
     }
     if (length(parts) >= 2L) {
       idx <- get0(parts[2L], envir = env, inherits = FALSE, ifnotfound = NA_integer_)
-      if (!is.na(idx)) return(make_hit(df, idx, parts[2L], "second segment of multi-part name"))
+      if (!is.na(idx)) return(list(idx = idx, matched_as = parts[2L], rule = "second segment of multi-part name"))
     }
   }
 

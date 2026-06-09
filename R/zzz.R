@@ -21,8 +21,11 @@ utils::globalVariables(c(
 #'   \item{[predict_race()]}{Single-call prediction with full per-token /
 #'     geography metadata.}
 #'   \item{[predict_sex()]}{Single-call sex probability from a first name.}
-#'   \item{[predict_names()]}{Vectorized predictions over a data frame
-#'     with auto-detected name and geography columns.}
+#'   \item{[predict_names()]}{Batch predictions over a data frame
+#'     with auto-detected name and geography columns (race + sex).}
+#'   \item{[predict_demog()]}{Vectorized batch engine — same model,
+#'     orders of magnitude faster, with optional user-supplied name
+#'     dictionaries, geography tables, and category groupings.}
 #'   \item{[geo_prior()]}{Geographic prior `P(R | G)` from the bundled
 #'     CVAP / VAP tables.}
 #'   \item{[run_app()]}{Launch the bundled Shiny lookup app.}
