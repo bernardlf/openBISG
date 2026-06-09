@@ -252,18 +252,18 @@ trust signal for R packages in this space.
 
 | # | Recommendation | Claim served | Impact | Effort |
 |---|---|---|---|---|
-| 1 | 1.1 Vectorize `predict_names()` | faster | very high | medium |
+| 1 | 1.1 Vectorize `predict_names()` — *shipped in 0.4.0 as `predict_demog()` (~23–200×); `predict_names()` itself still per-row* | faster | very high | medium |
 | 2 | 1.2 Hash geography lookup | faster | high | low |
 | 3 | 3.2 `missing =` policy for unmatched names | customizable, correctness | high | low–medium |
 | 4 | 4.4 DESCRIPTION/CITATION/licensing fixes | credibility | high | low |
 | 5 | 2.1 Data-package split → CRAN | lightweight | high | medium |
 | 6 | 3.5 Diagnostics columns + `bind` (the `p_geo_matched` doc mismatch is already fixed) | usability | medium | low |
 | 7 | 4.1 Validation vignette vs wru on a public voter file | credibility | very high | medium–high |
-| 8 | 3.1 User-supplied name dictionaries | customizable | high | medium |
+| 8 | 3.1 User-supplied name dictionaries — *shipped in 0.4.0 via `predict_demog(name_dict =)`, with user-defined category groupings* | customizable | high | medium |
 | 9 | 4.2 Aggregation helper + eiCompare hand-off vignette | adoption | medium | low–medium |
 | 10 | 4.5 CI + `test-geo.R` | credibility | medium | low |
 | 11 | 1.4 Benchmark vignette | faster | medium | low (after #1) |
-| 12 | 3.4 County/state priors; batch `geo_data =` | customizable | medium | medium |
+| 12 | 3.4 County/state priors; batch `geo_data =` — *batch user geography shipped in 0.4.0 via `predict_demog(geo_dict =)`; bundled county/state tables still open* | customizable | medium | medium |
 | 13 | 3.3 Configurable cascade | customizable | medium | low |
 | 14 | 3.6 Vector-semantics: docs fixed; optional rowwise vectorization or warning | correctness | low | low |
 | 15 | 1.3 Log-space combination | robustness | low | low |
