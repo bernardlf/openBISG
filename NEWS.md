@@ -1,3 +1,24 @@
+# openBISG 0.3.6
+
+Documentation release — the contents of PR #9, no code changes.
+
+- New `RECOMMENDATIONS.md`: a code-grounded review of the package
+  against `wru` and `eiCompare`'s BISG operationalization, with a
+  prioritized roadmap for the lightweight / customizable / faster
+  positioning.
+- README: removed the documented-but-nonexistent `p_geo_matched`
+  column from the Geography section and described the actual
+  fallback behavior (`$geography$found = FALSE` in `predict_race()`;
+  silent name-only fallback per row in `predict_names()`).
+- README: replaced the misleading "Vectors work too" example with an
+  explicit callout that vector inputs to a single `predict_race()`
+  field are multiple tokens for **one person**, with
+  `predict_names()` as the multi-row path.
+- README: restructured the Quick start into a short headline example
+  plus focused subsections (batch prediction, name fields, geography,
+  sex, extra dictionaries) and folded the "Also exported" paragraph
+  into a "Lower-level helpers" subsection.
+
 # openBISG 0.3.5
 
 ## Parallel `predict_names()`
