@@ -167,8 +167,10 @@ school-attendance zones at the *batch* level, not just per-call
 `geography_probs`.
 
 **3.5 Richer, opt-in batch output.** `predict_names()` returns a bare
-7-column frame; the README even documents a `p_geo_matched` column that the
-code does not produce (fix this mismatch either way). Add
+7-column frame with no per-row diagnostics. (The README briefly documented
+a `p_geo_matched` column the code never produced; the README has since
+been corrected — a real match indicator belongs in the `details` output
+proposed here.) Add
 `details = FALSE` which, when `TRUE`, appends diagnostics columns:
 `geo_matched` (logical), `n_evidence` (the `k` used), `surname_used`
 (`last`/`maiden`/none), `dataset` (census/rosenman), and `match_rules`.
@@ -177,13 +179,15 @@ script currently has to do this manually and can silently misalign rows
 after a filter.
 
 **3.6 Clarify (or change) vector semantics in `predict_race()`.** The
-README says "Vectors work too" for
-`predict_race(first = c("Maria","Jose"), last = c("Garcia","Lopez"))`, but
-the implementation treats a vector as multiple *tokens for one person*,
-not two people. A researcher who reads that line as rowwise vectorization
-gets one silently-wrong posterior instead of two predictions. Either
-document loudly that multi-record input belongs in `predict_names()`, or
-make `predict_race()` truly vectorized. At minimum fix the README example.
+implementation treats a character vector passed to a single field as
+multiple *tokens for one person*, not multiple people — a researcher who
+assumes rowwise vectorization gets one silently-wrong posterior instead of
+*n* predictions. The README's old "Vectors work too" example invited
+exactly that misreading; it has been replaced with an explicit
+"vector inputs are tokens, not rows" callout pointing to
+`predict_names()`. The remaining (optional) code-level improvement is to
+make `predict_race()` truly rowwise-vectorized, or to warn when every
+field receives an equal-length vector longer than one.
 
 ## 4. Credibility — what academics need before they will cite and switch
 
@@ -253,7 +257,7 @@ trust signal for R packages in this space.
 | 3 | 3.2 `missing =` policy for unmatched names | customizable, correctness | high | low–medium |
 | 4 | 4.4 DESCRIPTION/CITATION/licensing fixes | credibility | high | low |
 | 5 | 2.1 Data-package split → CRAN | lightweight | high | medium |
-| 6 | 3.5 Diagnostics columns + `bind`; fix `p_geo_matched` doc | usability | medium | low |
+| 6 | 3.5 Diagnostics columns + `bind` (the `p_geo_matched` doc mismatch is already fixed) | usability | medium | low |
 | 7 | 4.1 Validation vignette vs wru on a public voter file | credibility | very high | medium–high |
 | 8 | 3.1 User-supplied name dictionaries | customizable | high | medium |
 | 9 | 4.2 Aggregation helper + eiCompare hand-off vignette | adoption | medium | low–medium |
@@ -261,7 +265,7 @@ trust signal for R packages in this space.
 | 11 | 1.4 Benchmark vignette | faster | medium | low (after #1) |
 | 12 | 3.4 County/state priors; batch `geo_data =` | customizable | medium | medium |
 | 13 | 3.3 Configurable cascade | customizable | medium | low |
-| 14 | 3.6 Vector-semantics fix in docs | correctness | medium | very low |
+| 14 | 3.6 Vector-semantics: docs fixed; optional rowwise vectorization or warning | correctness | low | low |
 | 15 | 1.3 Log-space combination | robustness | low | low |
 | 16 | 4.3 Guarded `classify()` helper | adoption | low | low |
 | 17 | 4.6 pkgdown site | adoption | medium | low |
