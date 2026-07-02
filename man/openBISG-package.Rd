@@ -45,8 +45,8 @@ Special Tabulation), \link{geo_zcta_vap}, \link{geo_tract_vap}, \link{geo_bg_vap
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/bernardlf/namedata}
-  \item Report bugs at \url{https://github.com/bernardlf/namedata/issues}
+  \item \url{https://github.com/bernardlf/openBISG}
+  \item Report bugs at \url{https://github.com/bernardlf/openBISG/issues}
 }
 
 }
