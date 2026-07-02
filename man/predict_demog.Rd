@@ -10,7 +10,10 @@ predict_demog(
   geo_dict = NULL,
   prior = NULL,
   include_extra = FALSE,
-  geography_type = c("cvap", "vap")
+  geography_type = c("cvap", "vap"),
+  include_sex = TRUE,
+  progress = TRUE,
+  n_cores = 1L
 )
 }
 \arguments{
@@ -35,15 +38,40 @@ warning) when \code{name_dict} is supplied.}
 
 \item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — selects the
 bundled geography table when \code{geo_dict} is not supplied.}
+
+\item{include_sex}{Bundled name tables only: when \code{TRUE} (default),
+append a \code{p_female} column computed from the first-name-by-sex
+table (\code{first} field only, compound-first cascade), exactly as
+\code{\link[=predict_names]{predict_names()}}. Not applicable when \code{name_dict} is supplied —
+the categories are then read off the dictionary, and sex is just
+another grouping (see the \code{first_names_sex} example).}
+
+\item{progress}{If \code{TRUE} (default), prints a one-line text progress
+bar to \code{stderr} while the unique name values are resolved through
+the matching cascade, showing percent complete, elapsed time, and
+an estimated time remaining. Pass \code{FALSE} to suppress (e.g. inside
+non-interactive scripts or when capturing output). The bar is only
+drawn for the serial path (\code{n_cores == 1L}); in the parallel path
+it is replaced by a single start / finish status line.}
+
+\item{n_cores}{Number of worker processes used to resolve the unique
+name values. Default \code{1L} (serial). When \code{n_cores > 1L}, the
+unique values are split into chunks and resolved via
+\code{parallel::mclapply} (fork-based, so the bundled lookup tables are
+shared via copy-on-write). On Windows fork is unavailable, so
+values above 1 are ignored and resolution runs serially. Because
+the cascade only runs once per unique value, extra cores help
+mainly when the input has many distinct names.}
 }
 \value{
 A data frame with \code{nrow(data)} rows and one \verb{p_<category>}
 column per category (in the canonical order described above),
 summing to 1 per row when any evidence matched and \code{NA_real_}
-otherwise. Note there is no \code{p_female} column unless your
-categories include it: sex is just another grouping here (see the
-\code{first_names_sex} example); with the bundled race tables, use
-\code{\link[=predict_names]{predict_names()}} if you want race and sex in one call.
+otherwise. With the bundled name tables (\code{name_dict = NULL}) and
+\code{include_sex = TRUE}, a \code{p_female} column is appended
+(\code{P(female | first)}; \code{1 - p_female} gives \code{P(male)}; \code{NA_real_}
+when no first-name input matched the sex table) — the same
+7-column shape as \code{\link[=predict_names]{predict_names()}}.
 }
 \description{
 \code{predict_demog()} is the vectorized successor to \code{\link[=predict_names]{predict_names()}}:
@@ -54,7 +82,8 @@ BISG geography fold), but computed via deduplicated lookups and
 matrix algebra instead of a per-row loop — typically orders of
 magnitude faster on large data frames. With the default (bundled)
 tables it reproduces the race columns of \code{\link[=predict_names]{predict_names()}} to
-floating-point precision.
+floating-point precision and, like \code{\link[=predict_names]{predict_names()}}, appends a
+\code{p_female} column computed from the first-name-by-sex table.
 }
 \details{
 Unlike \code{\link[=predict_names]{predict_names()}}, the tables are pluggable and the category
@@ -133,10 +162,11 @@ df <- data.frame(
   zcta  = c("30307",  "10001", "94110"),
   stringsAsFactors = FALSE
 )
-## Bundled tables: same race posteriors as predict_names(), faster.
+## Bundled tables: same output as predict_names() (race + p_female),
+## orders of magnitude faster.
 predict_demog(df)
 
-## Sex as a category grouping, via the bundled sex table.
+## Sex-only categories, via the bundled sex table as a dictionary.
 predict_demog(data.frame(first = c("Michael", "Maria Jose")),
               name_dict = list(first = first_names_sex))
 
@@ -151,6 +181,6 @@ predict_demog(data.frame(first = c("Alice", "Bob"),
               prior = c(urban = 0.5, rural = 0.5))
 }
 \seealso{
-\code{\link[=predict_names]{predict_names()}} (per-row equivalent, includes sex),
+\code{\link[=predict_names]{predict_names()}} (per-row equivalent),
 \code{\link[=predict_race]{predict_race()}} (single-record detail), \code{\link[=geo_prior]{geo_prior()}}.
 }

@@ -223,7 +223,7 @@ session.
 **4.4 CRAN + citation hygiene.** Before any of this is announced:
 
 - `DESCRIPTION` `URL`/`BugReports` point at `bernardlf/namedata`, not this
-  repo — fix.
+  repo — *fixed in 0.5.0*.
 - `Authors@R` is a placeholder ("openBISG contributors,
   noreply@example.com"). CRAN requires a real maintainer; academics need
   a real name to cite. Add ORCIDs.
@@ -236,8 +236,10 @@ session.
   `data-raw/`).
 
 **4.5 CI and test gaps.** Tests cover lookup/normalize/predict well, but
-nothing in `R/geo.R` (`geo_prior()` key normalization, `combine_name_geo`,
-CVAP/VAP selection, the PR-missing-from-VAP edge) — add a `test-geo.R`.
+until 0.5.0 nothing covered `R/geo.R` — a `test-geo.R` now exercises
+`geo_prior()` key normalization (including the Summary-File-prefixed
+GEOID forms, whose handling 0.5.0 fixed); `combine_name_geo`, CVAP/VAP
+selection, and the PR-missing-from-VAP edge remain untested.
 Add GitHub Actions `R-CMD-check` across the OS matrix (the Windows
 `mclapply` fallback is currently untested anywhere) plus a coverage badge.
 Cheap, and the badges matter disproportionately for adoption.
