@@ -1,4 +1,4 @@
-# openBISG 0.4.1
+# openBISG 0.5.0
 
 ## `predict_demog()` reaches feature parity with `predict_names()`
 
