@@ -1,0 +1,8 @@
+^\.git$
+^\.gitignore$
+^\.Rbuildignore$
+^\.github$
+^CLAUDE\.md$
+^RECOMMENDATIONS\.md$
+^data-raw$
+\.DS_Store$

@@ -42,27 +42,22 @@ normalize_zcta <- function(z) {
 normalize_tract <- function(t) {
   t <- as.character(t)
   if (is.na(t) || !nzchar(t)) return(NA_character_)
+  ## Strip the "1400000US" Summary File prefix before dropping non-digits.
+  t <- sub("^\\s*\\d{7}US", "", t)
   t <- gsub("[^0-9]", "", t)
   ## Census tract GEOIDs are 11 digits: state(2) + county(3) + tract(6).
   if (nchar(t) == 11L) return(t)
-  if (nchar(t) > 11L) {
-    ## Strip the typical "1400000US" Summary File prefix.
-    if (grepl("^\\d{7}US", as.character(t))) {
-      return(sub("^\\d{7}US", "", as.character(t)))
-    }
-  }
   NA_character_
 }
 
 normalize_block_group <- function(b) {
   b <- as.character(b)
   if (is.na(b) || !nzchar(b)) return(NA_character_)
+  ## Strip the "1500000US" Summary File prefix before dropping non-digits.
+  b <- sub("^\\s*\\d{7}US", "", b)
   b <- gsub("[^0-9]", "", b)
   ## Block group GEOIDs are 12 digits: state(2) + county(3) + tract(6) + bg(1).
   if (nchar(b) == 12L) return(b)
-  if (nchar(b) > 12L && grepl("^\\d{7}US", as.character(b))) {
-    return(sub("^\\d{7}US", "", as.character(b)))
-  }
   NA_character_
 }
 
