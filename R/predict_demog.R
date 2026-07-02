@@ -115,19 +115,70 @@ resolve_surname_value <- function(value, specs, n_groups) {
 }
 
 ## Run a resolver once per unique field value. The cascade only ever
-## runs on unique values; rows are mapped back by match().
-resolve_uniques <- function(values, resolver, specs, n_groups) {
+## runs on unique values; rows are mapped back by match(). With
+## `n_cores > 1` the unique values are split into chunks and resolved
+## via parallel::mclapply (fork-based); `tick`, when non-NULL, is called
+## once per resolved value on the serial path to advance a progress bar.
+resolve_uniques <- function(values, resolver, specs, n_groups,
+                            n_cores = 1L, tick = NULL) {
   u <- length(values)
   prodm  <- matrix(1, nrow = u, ncol = n_groups)
   kvec   <- integer(u)
   hastok <- logical(u)
-  for (i in seq_len(u)) {
-    r <- resolver(values[i], specs, n_groups)
-    if (!is.null(r$prod)) prodm[i, ] <- r$prod
-    kvec[i]   <- r$k
-    hastok[i] <- isTRUE(r$has_tokens)
+  if (u == 0L) return(list(prod = prodm, k = kvec, has_tokens = hastok))
+  if (n_cores > 1L && u > 1L) {
+    nc <- min(n_cores, u)
+    chunks <- split(seq_len(u), cut(seq_len(u), nc, labels = FALSE))
+    parts <- parallel::mclapply(chunks, function(idx) {
+      m <- matrix(1, nrow = length(idx), ncol = n_groups)
+      k <- integer(length(idx))
+      h <- logical(length(idx))
+      for (j in seq_along(idx)) {
+        r <- resolver(values[idx[j]], specs, n_groups)
+        if (!is.null(r$prod)) m[j, ] <- r$prod
+        k[j] <- r$k
+        h[j] <- isTRUE(r$has_tokens)
+      }
+      list(prod = m, k = k, has_tokens = h)
+    }, mc.cores = nc)
+    prodm  <- do.call(rbind, lapply(parts, `[[`, "prod"))
+    kvec   <- unlist(lapply(parts, `[[`, "k"), use.names = FALSE)
+    hastok <- unlist(lapply(parts, `[[`, "has_tokens"), use.names = FALSE)
+  } else {
+    for (i in seq_len(u)) {
+      r <- resolver(values[i], specs, n_groups)
+      if (!is.null(r$prod)) prodm[i, ] <- r$prod
+      kvec[i]   <- r$k
+      hastok[i] <- isTRUE(r$has_tokens)
+      if (!is.null(tick)) tick()
+    }
   }
   list(prod = prodm, k = kvec, has_tokens = hastok)
+}
+
+## Turn per-row evidence products into posteriors: divide by
+## prior^(k - 1) for rows with more than one evidence piece (the
+## Naive-Bayes combination in combine_bayes_n()), renormalize, and set
+## rows with no evidence (k == 0) or a degenerate normalizer to NA.
+posterior_from_prod <- function(prodm, kvec, priorv) {
+  n_groups <- length(priorv)
+  npost <- matrix(NA_real_, nrow = length(kvec), ncol = n_groups)
+  rows <- which(kvec >= 1L)
+  if (length(rows) == 0L) return(npost)
+  num <- prodm[rows, , drop = FALSE]
+  multi <- kvec[rows] > 1L
+  if (any(multi)) {
+    denom <- outer(kvec[rows][multi] - 1L, priorv, function(k, p) p^k)
+    sub <- num[multi, , drop = FALSE] / denom
+    sub[, priorv == 0] <- 0            # combine_bayes_n(): zero prior wins
+    num[multi, ] <- sub
+  }
+  z <- rowSums(num, na.rm = TRUE)
+  bad <- !is.finite(z) | z == 0
+  res <- num / z
+  res[bad, ] <- NA_real_
+  npost[rows, ] <- res
+  npost
 }
 
 ## Validate a user-supplied name dictionary and return its group columns.
@@ -157,7 +208,8 @@ check_name_dict <- function(df, what) {
 #' matrix algebra instead of a per-row loop — typically orders of
 #' magnitude faster on large data frames. With the default (bundled)
 #' tables it reproduces the race columns of [predict_names()] to
-#' floating-point precision.
+#' floating-point precision and, like [predict_names()], appends a
+#' `p_female` column computed from the first-name-by-sex table.
 #'
 #' Unlike [predict_names()], the tables are pluggable and the category
 #' grouping is not fixed: supply your own name dictionary and/or
@@ -236,14 +288,36 @@ check_name_dict <- function(df, what) {
 #'   warning) when `name_dict` is supplied.
 #' @param geography_type `"cvap"` (default) or `"vap"` — selects the
 #'   bundled geography table when `geo_dict` is not supplied.
+#' @param include_sex Bundled name tables only: when `TRUE` (default),
+#'   append a `p_female` column computed from the first-name-by-sex
+#'   table (`first` field only, compound-first cascade), exactly as
+#'   [predict_names()]. Not applicable when `name_dict` is supplied —
+#'   the categories are then read off the dictionary, and sex is just
+#'   another grouping (see the `first_names_sex` example).
+#' @param progress If `TRUE` (default), prints a one-line text progress
+#'   bar to `stderr` while the unique name values are resolved through
+#'   the matching cascade, showing percent complete, elapsed time, and
+#'   an estimated time remaining. Pass `FALSE` to suppress (e.g. inside
+#'   non-interactive scripts or when capturing output). The bar is only
+#'   drawn for the serial path (`n_cores == 1L`); in the parallel path
+#'   it is replaced by a single start / finish status line.
+#' @param n_cores Number of worker processes used to resolve the unique
+#'   name values. Default `1L` (serial). When `n_cores > 1L`, the
+#'   unique values are split into chunks and resolved via
+#'   `parallel::mclapply` (fork-based, so the bundled lookup tables are
+#'   shared via copy-on-write). On Windows fork is unavailable, so
+#'   values above 1 are ignored and resolution runs serially. Because
+#'   the cascade only runs once per unique value, extra cores help
+#'   mainly when the input has many distinct names.
 #' @return A data frame with `nrow(data)` rows and one `p_<category>`
 #'   column per category (in the canonical order described above),
 #'   summing to 1 per row when any evidence matched and `NA_real_`
-#'   otherwise. Note there is no `p_female` column unless your
-#'   categories include it: sex is just another grouping here (see the
-#'   `first_names_sex` example); with the bundled race tables, use
-#'   [predict_names()] if you want race and sex in one call.
-#' @seealso [predict_names()] (per-row equivalent, includes sex),
+#'   otherwise. With the bundled name tables (`name_dict = NULL`) and
+#'   `include_sex = TRUE`, a `p_female` column is appended
+#'   (`P(female | first)`; `1 - p_female` gives `P(male)`; `NA_real_`
+#'   when no first-name input matched the sex table) — the same
+#'   7-column shape as [predict_names()].
+#' @seealso [predict_names()] (per-row equivalent),
 #'   [predict_race()] (single-record detail), [geo_prior()].
 #' @examples
 #' df <- data.frame(
@@ -252,10 +326,11 @@ check_name_dict <- function(df, what) {
 #'   zcta  = c("30307",  "10001", "94110"),
 #'   stringsAsFactors = FALSE
 #' )
-#' ## Bundled tables: same race posteriors as predict_names(), faster.
+#' ## Bundled tables: same output as predict_names() (race + p_female),
+#' ## orders of magnitude faster.
 #' predict_demog(df)
 #'
-#' ## Sex as a category grouping, via the bundled sex table.
+#' ## Sex-only categories, via the bundled sex table as a dictionary.
 #' predict_demog(data.frame(first = c("Michael", "Maria Jose")),
 #'               name_dict = list(first = first_names_sex))
 #'
@@ -274,11 +349,15 @@ predict_demog <- function(data,
                           geo_dict = NULL,
                           prior = NULL,
                           include_extra = FALSE,
-                          geography_type = c("cvap", "vap")) {
+                          geography_type = c("cvap", "vap"),
+                          include_sex = TRUE,
+                          progress = TRUE,
+                          n_cores = 1L) {
   if (!is.data.frame(data)) {
     stop("`data` must be a data.frame.", call. = FALSE)
   }
   geography_type <- match.arg(geography_type)
+  n_cores <- resolve_n_cores(n_cores, nrow(data))
 
   ## ---- Column detection (case-insensitive, as in predict_names) ----
   recognized_names <- c("first", "middle", "last", "maiden")
@@ -451,12 +530,48 @@ predict_demog <- function(data,
   xv <- if ("maiden" %in% name_cols) col_values("maiden") else rep("", n)
 
   ## ---- Resolve unique name values through the cascade ----
+  ## Sex is computed on the bundled path only, from the `first` field
+  ## alone, mirroring predict_names() / predict_race().
+  sex_enabled <- isTRUE(include_sex) && is.null(name_dict)
   given_u   <- setdiff(unique(c(fv, mv)), "")
   surname_u <- setdiff(unique(c(lv, xv)), "")
+  sex_u     <- if (sex_enabled) setdiff(unique(fv), "") else character(0)
+
+  use_parallel <- n_cores > 1L
+  total_units  <- length(given_u) + length(surname_u) + length(sex_u)
+  tick <- NULL
+  show_progress <- isTRUE(progress) && total_units > 0L && !use_parallel
+  if (show_progress) {
+    pb <- make_progress_bar(total_units)
+    pb$start()
+    tick <- pb$tick
+  }
+  if (use_parallel && isTRUE(progress) && total_units > 0L) {
+    cat(sprintf(
+      "predict_demog: resolving %d unique name values on %d cores...\n",
+      total_units, n_cores
+    ), file = stderr())
+  }
+  res_start <- Sys.time()
+
   gres <- resolve_uniques(given_u,   resolve_given_value,   given_specs,
-                          n_groups)
+                          n_groups, n_cores = n_cores, tick = tick)
   sres <- resolve_uniques(surname_u, resolve_surname_value, surname_specs,
-                          n_groups)
+                          n_groups, n_cores = n_cores, tick = tick)
+  if (sex_enabled) {
+    sex_grp <- attr(table_df("first_sex"), "groups")
+    xres <- resolve_uniques(sex_u, resolve_given_value,
+                            list(demog_spec_bundled("first_sex")),
+                            length(sex_grp), n_cores = n_cores, tick = tick)
+  }
+
+  if (show_progress) pb$done()
+  if (use_parallel && isTRUE(progress) && total_units > 0L) {
+    cat(sprintf(
+      "predict_demog: done in %.1fs.\n",
+      as.numeric(difftime(Sys.time(), res_start, units = "secs"))
+    ), file = stderr())
+  }
 
   fidx <- match(fv, given_u)
   midx <- match(mv, given_u)
@@ -484,23 +599,7 @@ predict_demog <- function(data,
   fold_field(sidx, sres)
 
   matched <- K >= 1L
-  npost <- matrix(NA_real_, nrow = n, ncol = n_groups)
-  if (any(matched)) {
-    rows <- which(matched)
-    num <- P[rows, , drop = FALSE]
-    multi <- K[rows] > 1L
-    if (any(multi)) {
-      denom <- outer(K[rows][multi] - 1L, priorv, function(k, p) p^k)
-      sub <- num[multi, , drop = FALSE] / denom
-      sub[, priorv == 0] <- 0          # combine_bayes_n(): zero prior wins
-      num[multi, ] <- sub
-    }
-    z <- rowSums(num, na.rm = TRUE)
-    bad <- !is.finite(z) | z == 0
-    res <- num / z
-    res[bad, ] <- NA_real_
-    npost[rows, ] <- res
-  }
+  npost <- posterior_from_prod(P, K, priorv)
 
   ## ---- Geography fold ----
   out <- npost
@@ -562,5 +661,13 @@ predict_demog <- function(data,
 
   out <- as.data.frame(out, stringsAsFactors = FALSE)
   names(out) <- paste0("p_", groups)
+
+  ## ---- Sex posterior over the unique first-name values ----
+  if (sex_enabled) {
+    sex_prior <- as.numeric(attr(table_df("first_sex"), "prior")[sex_grp])
+    spost <- posterior_from_prod(xres$prod, xres$k, sex_prior)
+    fem <- spost[, match("female", sex_grp)]
+    out$p_female <- fem[match(fv, sex_u)]
+  }
   out
 }

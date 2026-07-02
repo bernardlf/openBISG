@@ -1,3 +1,60 @@
+# openBISG 0.5.0
+
+## `predict_demog()` reaches feature parity with `predict_names()`
+
+`predict_demog()` regains the three conveniences the vectorized rewrite
+had dropped relative to `predict_names()`:
+
+- **Sex is back.** With the bundled name tables (`name_dict = NULL`),
+  the output now includes a `p_female` column computed from the
+  first-name-by-sex table — `first` field only, compound-first cascade,
+  identical to `predict_names()` — so the default output has the same
+  7-column shape as `predict_names()`. Opt out with the new
+  `include_sex = FALSE`. Custom `name_dict` output is unchanged (the
+  categories are read off the dictionary).
+- **New `progress = TRUE` argument.** A one-line text progress bar on
+  `stderr` (percent complete, elapsed, estimated remaining) tracks the
+  resolution of unique name values through the matching cascade — the
+  dominant cost on large inputs.
+- **New `n_cores = 1L` argument.** Values above 1 split the unique
+  name values into chunks resolved via `parallel::mclapply`
+  (fork-based; serial on Windows). As in `predict_names()`, the
+  parallel path replaces the progress bar with start / finish status
+  lines, and output is identical to the serial path.
+
+## Bug fixes
+
+- Census Summary File prefixed GEOIDs (`"1400000US..."` tracts,
+  `"1500000US..."` block groups) were documented as accepted but never
+  matched: the prefix check ran after all non-digit characters
+  (including `"US"`) had been stripped, so it could not fire and the
+  lookup returned no match. The prefix is now stripped first, and the
+  documented forms work in `geo_prior()`, `predict_race()`,
+  `predict_names()`, and `predict_demog()`.
+- `n_cores > 1` on Windows now falls back to serial processing in both
+  `predict_names()` and `predict_demog()` instead of relying on
+  `parallel::mclapply`'s platform behavior.
+
+## Other
+
+- License declaration corrected to `GPL (>= 3)`. The repository has
+  carried the GPL-3 license text since its initial commit, but
+  `DESCRIPTION` declared `MIT + file LICENSE`; the two now agree
+  (matching `wru`, whose normalization cascade this package models).
+- `DESCRIPTION` now points `URL` / `BugReports` at the package's own
+  repository.
+- Added `.Rbuildignore` covering the development-only files
+  (`data-raw/`, `CLAUDE.md`, `RECOMMENDATIONS.md`) so `R CMD build`
+  produces a clean tarball.
+- Internal: the progress bar and `n_cores` validation are shared
+  helpers used by both batch functions; the Naive-Bayes normalization
+  in `predict_demog()` is factored into a single internal routine used
+  for both the race and sex posteriors.
+- New tests: `predict_demog()` sex-column parity with
+  `predict_names()`, parallel-path equality, `include_sex = FALSE`,
+  `n_cores` validation, and a new `test-geo.R` covering `geo_prior()`
+  ID normalization including the prefixed GEOID forms.
+
 # openBISG 0.4.0
 
 ## New: `predict_demog()` — vectorized engine with pluggable dictionaries
