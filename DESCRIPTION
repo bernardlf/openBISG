@@ -15,7 +15,7 @@ Description: Lookup tables and a Naive-Bayes / BISG / BIFSG probability
     race/Hispanic-origin groups, plus a probability of sex from the
     first-name by-sex table. Includes a Shiny app that mirrors the
     bundled lookup page.
-License: MIT + file LICENSE
+License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
 LazyDataCompression: xz
