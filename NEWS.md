@@ -37,6 +37,10 @@ had dropped relative to `predict_names()`:
 
 ## Other
 
+- License declaration corrected to `GPL (>= 3)`. The repository has
+  carried the GPL-3 license text since its initial commit, but
+  `DESCRIPTION` declared `MIT + file LICENSE`; the two now agree
+  (matching `wru`, whose normalization cascade this package models).
 - `DESCRIPTION` now points `URL` / `BugReports` at the package's own
   repository.
 - Added `.Rbuildignore` covering the development-only files
