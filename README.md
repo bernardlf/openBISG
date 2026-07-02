@@ -93,8 +93,11 @@ of magnitude faster.
 but computed via deduplicated lookups and matrix algebra. On our
 benchmarks it runs ~23x faster on the bundled 10,000-row fixture and
 ~200x faster (~25,000 rows/s) on a 100,000-row file with realistic
-name duplication. With the bundled tables its race columns reproduce
-`predict_names()` to 1e-12.
+name duplication. With the bundled tables it reproduces the full
+7-column `predict_names()` output (race + `p_female`) to 1e-12, and it
+takes the same `progress` and `n_cores` arguments (a text progress bar
+on the serial path; fork-based `parallel::mclapply` over the unique
+name values when `n_cores > 1`).
 
 It also generalizes the tables: supply your own name dictionary
 and/or geography table and the prediction categories are read off the
@@ -104,11 +107,15 @@ the bundled Census tables (and then a supplied component must use the
 six bundled race categories).
 
 ```r
-# Drop-in fast path for the bundled race model (no p_female column —
-# sex is just another category grouping here, see below).
+# Drop-in fast path for the bundled model: same 7 columns as
+# predict_names(), including p_female. Suppress the sex column with
+# include_sex = FALSE.
 predict_demog(df)
 
-# Sex via the bundled sex table as a custom dictionary.
+# Large files: parallelize the cascade over unique name values.
+predict_demog(big_df, n_cores = 4L)
+
+# Sex-only categories via the bundled sex table as a custom dictionary.
 predict_demog(data.frame(first = c("Michael", "Maria Jose")),
               name_dict = list(first = first_names_sex))
 #> p_male, p_female

@@ -1,6 +1,7 @@
 race_cols <- paste0("p_", race_groups())
+all_cols  <- c(race_cols, "p_female")
 
-test_that("predict_demog matches predict_names race columns on bundled tables", {
+test_that("predict_demog matches predict_names on bundled tables (race + sex)", {
   df <- data.frame(
     first  = c("Maria",  "John",  "Mary Ann", "Maria ZZZQQQNOTAREALNAME",
                NA,       "Jose",   NA),
@@ -15,12 +16,40 @@ test_that("predict_demog matches predict_names race columns on bundled tables", 
     stringsAsFactors = FALSE
   )
   ref <- predict_names(df, progress = FALSE)
-  out <- predict_demog(df)
-  expect_equal(names(out), race_cols)
+  out <- predict_demog(df, progress = FALSE)
+  expect_equal(names(out), all_cols)
   expect_equal(nrow(out), nrow(df))
-  for (col in race_cols) {
+  for (col in all_cols) {
     expect_equal(out[[col]], ref[[col]], tolerance = 1e-12, label = col)
   }
+})
+
+test_that("predict_demog include_sex = FALSE drops the p_female column", {
+  df <- data.frame(first = "Maria", last = "Garcia",
+                   stringsAsFactors = FALSE)
+  out <- predict_demog(df, include_sex = FALSE, progress = FALSE)
+  expect_equal(names(out), race_cols)
+})
+
+test_that("predict_demog parallel path matches the serial path", {
+  skip_on_os("windows")  # fork unavailable; n_cores falls back to 1
+  df <- data.frame(
+    first = c("Maria",  "John",  "Mary Ann", "Aiden",  "Sofia"),
+    last  = c("Garcia", "Smith", "Johnson",  "Wong",   "Lopez"),
+    zcta  = c("30307",  "10001", "94110",    "94110",  "30307"),
+    stringsAsFactors = FALSE
+  )
+  serial   <- predict_demog(df, progress = FALSE)
+  parallel <- predict_demog(df, progress = FALSE, n_cores = 2L)
+  expect_equal(parallel, serial)
+})
+
+test_that("predict_demog errors on invalid n_cores", {
+  df <- data.frame(first = "Maria", stringsAsFactors = FALSE)
+  expect_error(predict_demog(df, n_cores = 0L,    progress = FALSE),
+               "positive integer")
+  expect_error(predict_demog(df, n_cores = "two", progress = FALSE),
+               "positive integer")
 })
 
 test_that("predict_demog matches predict_names with tract / block_group / vap", {
@@ -31,7 +60,7 @@ test_that("predict_demog matches predict_names with tract / block_group / vap", 
     stringsAsFactors = FALSE
   )
   ref <- predict_names(df, progress = FALSE, geography_type = "vap")
-  out <- predict_demog(df, geography_type = "vap")
+  out <- predict_demog(df, geography_type = "vap", progress = FALSE)
   for (col in race_cols) {
     expect_equal(out[[col]], ref[[col]], tolerance = 1e-12, label = col)
   }
@@ -40,7 +69,7 @@ test_that("predict_demog matches predict_names with tract / block_group / vap", 
                     Block_Group = "010010201001", ZCTA = "30307",
                     stringsAsFactors = FALSE)
   ref2 <- predict_names(df2, progress = FALSE)
-  out2 <- predict_demog(df2)
+  out2 <- predict_demog(df2, progress = FALSE)
   for (col in race_cols) {
     expect_equal(out2[[col]], ref2[[col]], tolerance = 1e-12, label = col)
   }
@@ -53,7 +82,7 @@ test_that("predict_demog matches predict_names with include_extra", {
                    last  = c("Garcia", le),
                    stringsAsFactors = FALSE)
   ref <- predict_names(df, include_extra = TRUE, progress = FALSE)
-  out <- predict_demog(df, include_extra = TRUE)
+  out <- predict_demog(df, include_extra = TRUE, progress = FALSE)
   for (col in race_cols) {
     expect_equal(out[[col]], ref[[col]], tolerance = 1e-12, label = col)
   }
@@ -61,17 +90,20 @@ test_that("predict_demog matches predict_names with include_extra", {
 
 test_that("predict_demog geography-only input returns P(R | G)", {
   df <- data.frame(zcta = c("30307", "99999"), stringsAsFactors = FALSE)
-  out <- predict_demog(df)
+  out <- predict_demog(df, progress = FALSE)
   gp <- geo_prior(zcta = "30307")
-  expect_equal(as.numeric(out[1, ]), as.numeric(gp[race_groups()]),
+  expect_equal(as.numeric(out[1, race_cols]), as.numeric(gp[race_groups()]),
                tolerance = 1e-12)
+  ## No first-name field: p_female is NA, as in predict_names().
   expect_true(all(is.na(out[2, ])))
+  expect_true(all(is.na(out$p_female)))
 })
 
 test_that("predict_demog with the bundled sex table reproduces predict_sex", {
   df <- data.frame(first = c("Michael", "Maria Jose", "ZZZQQQNOTAREALNAME"),
                    stringsAsFactors = FALSE)
-  out <- predict_demog(df, name_dict = list(first = openBISG::first_names_sex))
+  out <- predict_demog(df, name_dict = list(first = openBISG::first_names_sex),
+                       progress = FALSE)
   expect_equal(names(out), c("p_male", "p_female"))
   expect_equal(out$p_female[1],
                unname(predict_sex("Michael")$probs[["female"]]),
@@ -96,7 +128,8 @@ test_that("custom name_dict + geo_dict with custom categories combine", {
                    geoid = c("A1",    "B2",  "A1"),
                    stringsAsFactors = FALSE)
   pr <- c(urban = 0.5, rural = 0.5)
-  out <- predict_demog(df, name_dict = nd, geo_dict = gd, prior = pr)
+  out <- predict_demog(df, name_dict = nd, geo_dict = gd, prior = pr,
+                       progress = FALSE)
   expect_equal(names(out), c("p_urban", "p_rural"))
   ## Row 1: 0.8*0.9/0.5 vs 0.2*0.1/0.5, renormalized.
   expect_equal(out$p_urban[1], (0.8 * 0.9) / (0.8 * 0.9 + 0.2 * 0.1),
@@ -109,7 +142,7 @@ test_that("custom name_dict + geo_dict with custom categories combine", {
 
   ## Without `prior`, the total-weighted geo prior is derived (no warning
   ## needed for k = 1 rows, but the fold uses it).
-  out2 <- predict_demog(df, name_dict = nd, geo_dict = gd)
+  out2 <- predict_demog(df, name_dict = nd, geo_dict = gd, progress = FALSE)
   expect_equal(names(out2), c("p_urban", "p_rural"))
   expect_false(any(is.na(out2$p_urban)))
 })
@@ -120,7 +153,7 @@ test_that("custom name_dict alone uses its own categories; rows renormalized", {
                    dog  = c(2, 3),
                    stringsAsFactors = FALSE)
   out <- predict_demog(data.frame(first = c("alice", "bob")),
-                       name_dict = nd)
+                       name_dict = nd, progress = FALSE)
   expect_equal(names(out), c("p_cat", "p_dog"))
   expect_equal(out$p_cat, c(0.5, 0.25), tolerance = 1e-12)
 })
@@ -131,7 +164,7 @@ test_that("custom dictionaries get the same matching cascade", {
                    stringsAsFactors = FALSE)
   out <- predict_demog(
     data.frame(first = c("PEÑA", "O'Connor", "Mary Ann")),
-    name_dict = nd
+    name_dict = nd, progress = FALSE
   )
   expect_equal(out$p_a, c(0.9, 0.2, 0.7), tolerance = 1e-12)
 })
@@ -179,7 +212,7 @@ test_that("geoid column without geo_dict errors; include_extra warns with name_d
                    stringsAsFactors = FALSE)
   expect_warning(
     predict_demog(data.frame(first = "Alice"), name_dict = nd,
-                  include_extra = TRUE),
+                  include_extra = TRUE, progress = FALSE),
     "include_extra"
   )
 })
@@ -189,11 +222,12 @@ test_that("uniform-prior fallback warns only when the prior matters", {
                    a = c(0.8, 0.3), b = c(0.2, 0.7),
                    stringsAsFactors = FALSE)
   ## Single evidence piece, no geography: prior never enters -> no warning.
-  expect_silent(predict_demog(data.frame(first = "Alice"), name_dict = nd))
+  expect_silent(predict_demog(data.frame(first = "Alice"), name_dict = nd,
+                              progress = FALSE))
   ## Two evidence pieces (first + last): prior enters -> warning.
   expect_warning(
     predict_demog(data.frame(first = "Alice", last = "Bob"),
-                  name_dict = nd),
+                  name_dict = nd, progress = FALSE),
     "uniform prior"
   )
 })

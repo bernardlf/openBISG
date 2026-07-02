@@ -404,10 +404,9 @@ predict_sex <- function(first = NULL) {
 #'   (serial). When `n_cores > 1L`, rows are split into `n_cores`
 #'   chunks and processed via `parallel::mclapply` (fork-based, so
 #'   the large bundled lookup tables are shared via copy-on-write —
-#'   no per-worker export cost). On Windows fork is unavailable and
-#'   `mclapply` silently falls back to serial; pass `n_cores = 1L`
-#'   there to suppress the warning. Capped at
-#'   `min(n_cores, parallel::detectCores(), nrow(data))`.
+#'   no per-worker export cost). On Windows fork is unavailable, so
+#'   values above 1 are ignored and rows are processed serially.
+#'   Capped at `min(n_cores, parallel::detectCores(), nrow(data))`.
 #' @return A data frame with `nrow(data)` rows and 7 columns:
 #'   `p_white`, `p_black`, `p_aian`, `p_aapi`, `p_nh_multi`,
 #'   `p_hispanic` (race probabilities, summing to 1 per row when
@@ -437,10 +436,6 @@ predict_names <- function(data,
     stop("`data` must be a data.frame.", call. = FALSE)
   }
   geography_type <- match.arg(geography_type)
-  if (!is.numeric(n_cores) || length(n_cores) != 1L || n_cores < 1L) {
-    stop("`n_cores` must be a single positive integer.", call. = FALSE)
-  }
-  n_cores <- as.integer(n_cores)
 
   recognized_names <- c("first", "middle", "last", "maiden")
   recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
@@ -526,35 +521,13 @@ predict_names <- function(data,
     m
   }
 
-  n_cores <- min(n_cores, max(1L, n))
+  n_cores <- resolve_n_cores(n_cores, n)
   use_parallel <- n_cores > 1L && n > 1L
-  if (use_parallel) {
-    n_cores <- min(n_cores, parallel::detectCores(logical = TRUE))
-  }
 
   show_progress <- isTRUE(progress) && n > 0L && !use_parallel
   if (show_progress) {
-    pb_start <- Sys.time()
-    pb_step  <- max(1L, n %/% 100L)
-    pb_width <- 30L
-    pb_print <- function(i) {
-      frac    <- i / n
-      elapsed <- as.numeric(difftime(Sys.time(), pb_start, units = "secs"))
-      eta     <- if (frac > 0) elapsed * (1 - frac) / frac else 0
-      filled  <- floor(pb_width * frac)
-      arrow   <- filled < pb_width
-      bar <- paste0(
-        "|",
-        strrep("=", filled),
-        if (arrow) ">" else "",
-        strrep(" ", max(0L, pb_width - filled - as.integer(arrow))),
-        "|"
-      )
-      cat(sprintf("\r%s %3d%% (%.0fs elapsed, ~%.0fs remaining)   ",
-                  bar, round(100 * frac), elapsed, eta),
-          file = stderr())
-    }
-    pb_print(0L)
+    pb <- make_progress_bar(n)
+    pb$start()
   }
 
   out_mat <- matrix(NA_real_, nrow = n, ncol = 7L,
@@ -582,9 +555,9 @@ predict_names <- function(data,
   } else {
     for (i in seq_len(n)) {
       out_mat[i, ] <- process_row(i)
-      if (show_progress && (i == n || i %% pb_step == 0L)) pb_print(i)
+      if (show_progress) pb$tick()
     }
-    if (show_progress) cat("\n", file = stderr())
+    if (show_progress) pb$done()
   }
 
   as.data.frame(out_mat, stringsAsFactors = FALSE)

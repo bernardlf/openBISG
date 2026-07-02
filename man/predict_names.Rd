@@ -35,10 +35,9 @@ it is replaced by a single start / finish status line.}
 (serial). When \code{n_cores > 1L}, rows are split into \code{n_cores}
 chunks and processed via \code{parallel::mclapply} (fork-based, so
 the large bundled lookup tables are shared via copy-on-write —
-no per-worker export cost). On Windows fork is unavailable and
-\code{mclapply} silently falls back to serial; pass \code{n_cores = 1L}
-there to suppress the warning. Capped at
-\code{min(n_cores, parallel::detectCores(), nrow(data))}.}
+no per-worker export cost). On Windows fork is unavailable, so
+values above 1 are ignored and rows are processed serially.
+Capped at \code{min(n_cores, parallel::detectCores(), nrow(data))}.}
 }
 \value{
 A data frame with \code{nrow(data)} rows and 7 columns:
