@@ -11,6 +11,7 @@ predict_demog(
   prior = NULL,
   include_extra = FALSE,
   geography_type = c("cvap", "vap"),
+  geo_smooth = 1,
   include_sex = TRUE,
   progress = TRUE,
   n_cores = 1L
@@ -38,6 +39,15 @@ warning) when \code{name_dict} is supplied.}
 
 \item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — selects the
 bundled geography table when \code{geo_dict} is not supplied.}
+
+\item{geo_smooth}{Pseudo-count, in people, used to shrink each
+geography's composition toward the population-weighted marginal of
+the whole geography table before the fold — see \code{\link[=geo_prior]{geo_prior()}} for
+the formula and rationale. Default \code{1}, matching \code{\link[=predict_race]{predict_race()}} /
+\code{\link[=predict_names]{predict_names()}}; \code{0} folds in the published shares unchanged.
+With a user-supplied \code{geo_dict}, smoothing needs a scale for each
+row and so applies only when \code{geo_dict} has a \code{total} column;
+without one it is silently skipped.}
 
 \item{include_sex}{Bundled name tables only: when \code{TRUE} (default),
 append a \code{p_female} column computed from the first-name-by-sex
