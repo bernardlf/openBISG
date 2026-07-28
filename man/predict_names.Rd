@@ -8,6 +8,7 @@ predict_names(
   data,
   include_extra = FALSE,
   geography_type = c("cvap", "vap"),
+  geo_smooth = 1,
   progress = TRUE,
   n_cores = 1L
 )
@@ -23,6 +24,11 @@ tables. Default \code{FALSE}.}
 
 \item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — selects the
 bundled geography table used when a geography column is detected.}
+
+\item{geo_smooth}{Forwarded to \code{\link[=predict_race]{predict_race()}} — the pseudo-count
+used to shrink the geographic prior toward the national marginal
+before folding, which keeps sampling zeros in \code{P(R | G)} from
+zeroing out a group the names point to. Default \code{1}; \code{0} disables.}
 
 \item{progress}{If \code{TRUE} (default), prints a one-line text progress
 bar to \code{stderr} showing percent complete, elapsed time, and an

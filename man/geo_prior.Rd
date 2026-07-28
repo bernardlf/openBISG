@@ -8,7 +8,8 @@ geo_prior(
   zcta = NULL,
   tract = NULL,
   block_group = NULL,
-  type = c("cvap", "vap")
+  type = c("cvap", "vap"),
+  geo_smooth = 1
 )
 }
 \arguments{
@@ -25,14 +26,19 @@ prior is computed over. CVAP excludes non-citizens; VAP is everyone
 age 18+. CVAP is appropriate for predictions about likely voters
 (e.g. matching against a voter file). VAP is appropriate when the
 bearer's citizenship status is unknown.}
+
+\item{geo_smooth}{Pseudo-count, in people, used to shrink the
+looked-up composition toward the national marginal of the same
+table — see \strong{Zero cells and smoothing}. Default \code{1}. Set to \code{0}
+to return the published shares unchanged.}
 }
 \value{
 A length-6 named numeric vector of proportions in
 \code{\link[=race_groups]{race_groups()}} order, summing to 1. Has the attribute \code{total}
 (the CVAP or VAP count for that geography), \code{level} (\code{"zcta"} /
-\code{"tract"} / \code{"block_group"} / \code{"national"}), and \code{type}
-(\code{"cvap"} / \code{"vap"}). Returns \code{NULL} if the geography ID isn't in
-the bundled table.
+\code{"tract"} / \code{"block_group"} / \code{"national"}), \code{type}
+(\code{"cvap"} / \code{"vap"}), and \code{geo_smooth} (the pseudo-count applied).
+Returns \code{NULL} if the geography ID isn't in the bundled table.
 }
 \description{
 Look up the share of each race / Hispanic-origin group for the citizen
@@ -54,10 +60,42 @@ Tract GEOIDs may be supplied either as 11-digit FIPS strings
 ("1400000US01001020100"). Block-group GEOIDs are 12 digits, optionally
 with the "1500000US" prefix.
 }
+\section{Zero cells and smoothing}{
+
+The bundled tables contain a great many exact zeros at fine
+geographies — in \code{geo_bg_cvap}, 49\% of block groups report zero
+Asian / NHPI citizens age 18+ and 86\% report zero AIAN. These are
+overwhelmingly \emph{sampling} zeros: the CVAP Special Tabulation is an
+ACS estimate, and a group with no one in the sample for a block
+group is published as zero even where the true count is not.
+
+Passed through the BISG fold unchanged, a zero cell is fatal:
+\code{P(R | name, G)} is proportional to \verb{P(R | name) P(R | G) / P(R)}, so
+a zero in \code{P(R | G)} forces that group's posterior to exactly zero
+regardless of how decisive the name is, and the displaced mass lands
+on whichever surviving group has the smallest marginal prior.
+
+\code{geo_smooth} therefore shrinks the looked-up composition toward the
+population-weighted national marginal of the same table, with a
+pseudo-count of \code{geo_smooth} people:
+\deqn{p_{\mathrm{smooth}} = \frac{\mathrm{total} \times p_G +
+  \alpha \, p_{\mathrm{national}}}{\mathrm{total} + \alpha}.}
+At the default \code{geo_smooth = 1} — one pseudo-person drawn from the
+national distribution — a populated cell moves by well under a tenth
+of a percentage point, while a zero cell becomes small but positive.
+Pass \code{geo_smooth = 0} for the raw published shares.
+}
+
 \examples{
 geo_prior(zcta = "00601")              # ZCTA in Puerto Rico
 geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 geo_prior(zcta = 30307, type = "vap")  # Atlanta-area ZIP, VAP basis
+
+## Half of `geo_bg_cvap` estimates zero Asian / NHPI citizens age
+## 18+. Smoothing replaces the fatal exact zero with a small share.
+bg <- geo_bg_cvap$geoid[geo_bg_cvap$aapi == 0][1]
+geo_prior(block_group = bg, geo_smooth = 0)[["aapi"]]
+geo_prior(block_group = bg)[["aapi"]]
 }
 \seealso{
 \code{\link[=predict_race]{predict_race()}}, \link{last_names}.

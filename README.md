@@ -171,11 +171,19 @@ predict_race(last = "Smith",  tract = "01001020100", geography_type = "vap")
 geo_prior(zcta = "00601")              # ZCTA in Puerto Rico (CVAP)
 geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 geo_prior(block_group = "010010201001", type = "vap")
+
+# Geographic priors are shrunk toward the national marginal by a
+# one-person pseudo-count, so a sampling zero in the ACS estimate
+# cannot zero out a group the names point to. `geo_smooth = 0`
+# folds in the published shares unchanged.
+predict_race(first = "Maria", last = "Garcia", zcta = "30307",
+             geo_smooth = 0)
 ```
 
 The default population basis is CVAP (citizens 18+); pass `"vap"` for
-everyone 18+. See **Geography** below for ID formats, data sources, and
-how to choose between the two bases.
+everyone 18+. See **Geography** below for ID formats, data sources,
+how to choose between the two bases, and why `geo_smooth` defaults to
+a nonzero pseudo-count.
 
 ### Sex
 
@@ -363,11 +371,12 @@ Three entry points accept the same set of geography arguments. Pass
 **at most one** of `zcta`, `tract`, or `block_group` per call; supplying
 more than one raises an error.
 
-| Function | Geography arguments | Population basis |
-|---|---|---|
-| `geo_prior()` | `zcta=`, `tract=`, `block_group=` | `type = "cvap"` (default) or `"vap"` |
-| `predict_race()` | `zcta=`, `tract=`, `block_group=`, or `geography_probs=` (length-6 named numeric in `race_groups()` order) | `geography_type = "cvap"` (default) or `"vap"` |
-| `predict_names()` | data frame columns named `zcta`, `tract`, or `block_group` (auto-detected; most specific wins if multiple) | `geography_type = "cvap"` (default) or `"vap"` |
+| Function | Geography arguments | Population basis | Zero-cell smoothing |
+|---|---|---|---|
+| `geo_prior()` | `zcta=`, `tract=`, `block_group=` | `type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` |
+| `predict_race()` | `zcta=`, `tract=`, `block_group=`, or `geography_probs=` (length-6 named numeric in `race_groups()` order) | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` (ignored for `geography_probs`) |
+| `predict_names()` | data frame columns named `zcta`, `tract`, or `block_group` (auto-detected; most specific wins if multiple) | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` |
+| `predict_demog()` | same as `predict_names()`, plus `geoid` with a custom `geo_dict=` | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` (custom `geo_dict` needs a `total` column) |
 
 ### Accepted ID formats
 
@@ -419,6 +428,96 @@ ACS or Decennial release, pass your own table via
 
 CVAP is the default. The two bases can give materially different priors
 in geographies with large non-citizen populations.
+
+### Zero cells and `geo_smooth`
+
+The BISG fold divides by `P(R)` and multiplies by `P(R | G)`, so a cell
+of `P(R | G)` that is **exactly zero** drives that group's posterior to
+zero no matter how decisive the name is. The bundled tables are full of
+such cells at fine geographies:
+
+| share of rows with an exact zero | white | black | aian | aapi | nh_multi | hispanic |
+|---|---|---|---|---|---|---|
+| `geo_bg_cvap` | 3.4% | 36.2% | 86.0% | 49.1% | 35.1% | 19.8% |
+| `geo_tract_cvap` | 1.4% | 15.1% | 70.5% | 26.2% | 9.3% | 4.8% |
+| `geo_zcta_cvap` | 0.1% | 13.8% | 32.8% | 19.3% | 1.9% | 2.9% |
+| `geo_bg_vap` | 0.2% | 5.2% | 31.1% | 7.7% | 0.3% | 0.4% |
+
+These are overwhelmingly **sampling** zeros rather than structural ones.
+The CVAP Special Tabulation is an ACS estimate, so a group with nobody
+in the sample for a block group is published as zero even where the true
+count is not — 42% of the national CVAP lives in a block group whose
+published Asian / NHPI count is zero. Taken at face value the zero is
+fatal, and the displaced mass lands on whichever surviving group has the
+smallest marginal prior (usually `nh_multi`, whose `P(R)` of 0.033 gives
+it the largest `/P(R)` boost).
+
+`geo_smooth` shrinks each looked-up composition toward the
+population-weighted national marginal of the same table, with a
+pseudo-count of `geo_smooth` people — a Dirichlet(`geo_smooth` ×
+national) prior on the geography's composition:
+
+$$p_{\mathrm{smooth}} = \frac{\mathrm{total} \times p_G + \alpha \, p_{\mathrm{national}}}{\mathrm{total} + \alpha}$$
+
+At the default `alpha = 1`, one pseudo-person moves a populated cell by
+well under a tenth of a percentage point, but turns an exact zero into a
+small positive share — so geography still weighs heavily against the
+group, just not infinitely. Pass `geo_smooth = 0` for the published
+shares unchanged.
+
+```r
+# Three name tokens that are each 95-98% AAPI in the Census tables, in
+# a block group whose published CVAP has no Asian / NHPI citizens.
+df <- data.frame(first = "WEI", middle = "MINH", last = "NGUYEN",
+                 block_group = "010010201001")
+
+predict_names(df, geo_smooth = 0)
+#> p_aapi = 0.000   p_nh_multi = 0.996   <- the zero cell wins outright
+predict_names(df)
+#> p_aapi = 0.997   p_nh_multi = 0.003   <- default geo_smooth = 1
+```
+
+Over a 10,000-row sample of names joined to block groups, smoothing
+removes a hard zero from 95% of rows while changing the modal group for
+only 0.24% of them; the median per-row change is 1e-4.
+
+### Relation to `wru`'s fBISG
+
+This is the same correction that `wru`'s `model = "fBISG"` applies to the
+geography term, arrived at from the same conjugate structure. Imai,
+Olivella & Rosenman (2022) model the published counts as
+`N_g ~ Multinomial(N_g, ζ_g)` over a geography's unknown true composition
+`ζ_g`, put a `Dirichlet(α)` prior on `ζ_g`, and replace BISG's
+`N_rg / Σ N_r'g` with `(n⁻ⁱ_rg + N_rg + α_r) / Σ_r'(n⁻ⁱ_r'g + N_r'g + α_r')`.
+`geo_smooth` is that expression without the `n⁻ⁱ_rg` term:
+
+- **α points differently.** `wru` uses a uniform `α = 1` on every
+  category. `geo_smooth` distributes its pseudo-count along the national
+  marginal, so rare groups are not floored at the same level as common
+  ones and the result does not depend on how finely the categories are
+  split.
+- **No pooling across records.** `n⁻ⁱ_rg` counts the *other records in
+  your own input* currently assigned to race `r` in geography `g`, which
+  is what lets fBISG conclude that the Census undercounted a group in a
+  place. `geo_smooth` cannot do that, and deliberately does not try: it
+  would require holding every observation for a geography at once, which
+  is exactly what this package's per-record and streaming-friendly
+  interfaces are built to avoid. `geo_smooth` only declines to believe an
+  exact zero.
+- **Closed form.** fBISG needs a Gibbs sampler (`wru`'s `control` takes
+  `iter`, `burnin`, `me.correct`), so it is stochastic and costs
+  `O(iter × n)`. `geo_smooth` is a deterministic one-line adjustment to
+  the prior with no measurable runtime.
+
+If you need the pooled estimate and can afford the sampler, use `wru`'s
+fBISG. `geo_smooth` is the cheap fix for the failure mode that motivates
+it.
+
+Name-table zeros are a separate matter and are **not** smoothed: those
+come from published Census counts rather than survey estimates, and a
+zero there still zeroes the group. Around 38% of first-name rows and 62%
+of surname rows carry at least one zero cell, so a token whose count for
+some group is zero rules that group out on its own.
 
 ### Examples
 

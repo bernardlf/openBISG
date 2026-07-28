@@ -15,6 +15,7 @@ predict_race(
   tract = NULL,
   block_group = NULL,
   geography_type = c("cvap", "vap"),
+  geo_smooth = 1,
   geography_probs = NULL
 )
 }
@@ -52,6 +53,16 @@ See \code{\link[=geo_prior]{geo_prior()}} for accepted formats and the bundled t
 bundled geography table feeds the prior when \code{zcta} / \code{tract} /
 \code{block_group} is supplied.}
 
+\item{geo_smooth}{Pseudo-count, in people, used to shrink the bundled
+geographic prior toward the national marginal of the same table
+before it is folded in (default \code{1}). This keeps an exact zero in
+\code{P(R | G)} — common at block-group scale, where 49\% of CVAP rows
+estimate no Asian / NHPI citizens — from forcing that group's
+posterior to zero regardless of the name evidence. See
+\code{\link[=geo_prior]{geo_prior()}} for the formula. Set to \code{0} to fold in the published
+shares unchanged. Ignored when \code{geography_probs} is supplied: a
+caller-supplied prior is used exactly as given.}
+
 \item{geography_probs}{Optional length-6 named numeric vector of
 \code{P(R | G)} (in \code{\link[=race_groups]{race_groups()}} order). Lets callers plug in a
 prior from any external source without going through
@@ -72,6 +83,11 @@ otherwise) of hits or \code{NULL}.}
 \code{NULL} if neither.}
 \item{combined}{\code{list(probs = ..., n = k)} — or \code{NULL} if no
 evidence matched.}
+\item{geography}{\code{NULL} when no geography was supplied,
+otherwise a list describing the lookup: \code{level}, \code{type}, \code{key},
+\code{total}, \code{source}, \code{found}, the \code{geo_smooth} pseudo-count that
+was applied, the (smoothed) \code{probs} fed to the fold, and
+\code{combined} — the BISG posterior \code{P(R | name, G)}.}
 \item{sex}{\code{list(probs = ..., tokens, n)} — or \code{NULL} if no
 first-name input was provided.}
 }

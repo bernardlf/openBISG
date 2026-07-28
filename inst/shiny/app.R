@@ -327,11 +327,18 @@ server <- function(input, output, session) {
         tot <- if (!is.na(geo$total)) sprintf(" (n = %s)",
                                               format(geo$total, big.mark = ","))
                else ""
+        smooth_note <- if (isTRUE((geo$geo_smooth %||% 0) > 0)) {
+          sprintf(paste(
+            " Shrunk toward the national marginal by a %s-person",
+            "pseudo-count, so a sampling zero in the published estimate",
+            "cannot rule a group out on its own."
+          ), format(geo$geo_smooth))
+        } else ""
         note <- sprintf(
-          "%s prior at %s for <strong>%s</strong>%s.",
+          "%s prior at %s for <strong>%s</strong>%s.%s",
           type_label, level_label,
           if (is.null(geo$key)) "supplied geography" else geo$key,
-          tot
+          tot, smooth_note
         )
         sections <- c(sections, list(prob_table(
           sprintf("P(group | %s)", level_label),
