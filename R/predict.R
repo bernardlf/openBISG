@@ -141,6 +141,15 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #' @param geography_type `"cvap"` (default) or `"vap"` — picks which
 #'   bundled geography table feeds the prior when `zcta` / `tract` /
 #'   `block_group` is supplied.
+#' @param geo_smooth Pseudo-count, in people, used to shrink the bundled
+#'   geographic prior toward the national marginal of the same table
+#'   before it is folded in (default `1`). This keeps an exact zero in
+#'   `P(R | G)` — common at block-group scale, where 49% of CVAP rows
+#'   estimate no Asian / NHPI citizens — from forcing that group's
+#'   posterior to zero regardless of the name evidence. See
+#'   [geo_prior()] for the formula. Set to `0` to fold in the published
+#'   shares unchanged. Ignored when `geography_probs` is supplied: a
+#'   caller-supplied prior is used exactly as given.
 #' @param geography_probs Optional length-6 named numeric vector of
 #'   `P(R | G)` (in [race_groups()] order). Lets callers plug in a
 #'   prior from any external source without going through
@@ -159,6 +168,11 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'       `NULL` if neither.}
 #'     \item{combined}{`list(probs = ..., n = k)` — or `NULL` if no
 #'       evidence matched.}
+#'     \item{geography}{`NULL` when no geography was supplied,
+#'       otherwise a list describing the lookup: `level`, `type`, `key`,
+#'       `total`, `source`, `found`, the `geo_smooth` pseudo-count that
+#'       was applied, the (smoothed) `probs` fed to the fold, and
+#'       `combined` — the BISG posterior `P(R | name, G)`.}
 #'     \item{sex}{`list(probs = ..., tokens, n)` — or `NULL` if no
 #'       first-name input was provided.}
 #'   }
@@ -185,8 +199,10 @@ predict_race <- function(first = NULL, middle = NULL,
                          include_extra = FALSE,
                          zcta = NULL, tract = NULL, block_group = NULL,
                          geography_type = c("cvap", "vap"),
+                         geo_smooth = 1,
                          geography_probs = NULL) {
   geography_type <- match.arg(geography_type)
+  geo_smooth <- check_geo_smooth(geo_smooth)
   first_tokens  <- tokenize_names(first)
   middle_tokens <- tokenize_names(middle)
   last_tokens   <- tokenize_names(last)
@@ -268,7 +284,8 @@ predict_race <- function(first = NULL, middle = NULL,
   }
   geo_probs <- NULL
   geo_meta  <- list(level = NULL, type = geography_type, total = NA_integer_,
-                    key = NULL, source = NULL, found = FALSE)
+                    key = NULL, source = NULL, found = FALSE,
+                    geo_smooth = geo_smooth)
   if (!is.null(geography_probs)) {
     g <- geography_probs[race_groups()]
     if (any(is.na(g)) || sum(g, na.rm = TRUE) <= 0) {
@@ -277,12 +294,13 @@ predict_race <- function(first = NULL, middle = NULL,
            call. = FALSE)
     }
     geo_probs <- g / sum(g)
-    geo_meta$source <- "user"
-    geo_meta$level  <- "user"
-    geo_meta$found  <- TRUE
+    geo_meta$source     <- "user"
+    geo_meta$level      <- "user"
+    geo_meta$found      <- TRUE
+    geo_meta$geo_smooth <- 0      # caller-supplied priors are used as given
   } else if (any(geo_supplied[1:3])) {
     p <- geo_prior(zcta = zcta, tract = tract, block_group = block_group,
-                   type = geography_type)
+                   type = geography_type, geo_smooth = geo_smooth)
     geo_meta$key <- if (!is.null(zcta)) as.character(zcta)
                     else if (!is.null(tract)) as.character(tract)
                     else as.character(block_group)
@@ -394,6 +412,10 @@ predict_sex <- function(first = NULL) {
 #'   tables. Default `FALSE`.
 #' @param geography_type `"cvap"` (default) or `"vap"` — selects the
 #'   bundled geography table used when a geography column is detected.
+#' @param geo_smooth Forwarded to [predict_race()] — the pseudo-count
+#'   used to shrink the geographic prior toward the national marginal
+#'   before folding, which keeps sampling zeros in `P(R | G)` from
+#'   zeroing out a group the names point to. Default `1`; `0` disables.
 #' @param progress If `TRUE` (default), prints a one-line text progress
 #'   bar to `stderr` showing percent complete, elapsed time, and an
 #'   estimated time remaining. Pass `FALSE` to suppress (e.g. inside
@@ -430,12 +452,14 @@ predict_sex <- function(first = NULL) {
 predict_names <- function(data,
                           include_extra = FALSE,
                           geography_type = c("cvap", "vap"),
+                          geo_smooth = 1,
                           progress = TRUE,
                           n_cores = 1L) {
   if (!is.data.frame(data)) {
     stop("`data` must be a data.frame.", call. = FALSE)
   }
   geography_type <- match.arg(geography_type)
+  geo_smooth <- check_geo_smooth(geo_smooth)
 
   recognized_names <- c("first", "middle", "last", "maiden")
   recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
@@ -495,7 +519,8 @@ predict_names <- function(data,
         zcta           = cell(zc, i),
         tract          = cell(tc, i),
         block_group    = cell(bc, i),
-        geography_type = geography_type
+        geography_type = geography_type,
+        geo_smooth     = geo_smooth
       ),
       error = function(e) NULL
     )
