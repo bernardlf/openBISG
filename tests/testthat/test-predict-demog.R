@@ -128,8 +128,11 @@ test_that("custom name_dict + geo_dict with custom categories combine", {
                    geoid = c("A1",    "B2",  "A1"),
                    stringsAsFactors = FALSE)
   pr <- c(urban = 0.5, rural = 0.5)
+  ## geo_smooth = 0 for the raw fold arithmetic; `gd` has a `total`
+  ## column, so the default geo_smooth = 1 would shrink each row toward
+  ## the table marginal first (checked separately below).
   out <- predict_demog(df, name_dict = nd, geo_dict = gd, prior = pr,
-                       progress = FALSE)
+                       geo_smooth = 0, progress = FALSE)
   expect_equal(names(out), c("p_urban", "p_rural"))
   ## Row 1: 0.8*0.9/0.5 vs 0.2*0.1/0.5, renormalized.
   expect_equal(out$p_urban[1], (0.8 * 0.9) / (0.8 * 0.9 + 0.2 * 0.1),
@@ -139,6 +142,19 @@ test_that("custom name_dict + geo_dict with custom categories combine", {
                tolerance = 1e-12)
   ## Row 3: Carol misses the dictionary -> geography-only prediction.
   expect_equal(out$p_urban[3], 0.9, tolerance = 1e-12)
+
+  ## With the default pseudo-count each geo row is shrunk toward the
+  ## `total`-weighted marginal of `gd` before the fold.
+  sm <- predict_demog(df, name_dict = nd, geo_dict = gd, prior = pr,
+                      progress = FALSE)
+  marg  <- (100 * c(0.9, 0.1) + 200 * c(0.2, 0.8)) / 300
+  a1    <- (100 * c(0.9, 0.1) + 1 * marg) / 101
+  num1  <- c(0.8, 0.2) * a1 / 0.5
+  expect_equal(sm$p_urban[1], (num1 / sum(num1))[1], tolerance = 1e-12)
+  ## Row 3 is geography-only, so it reads the smoothed A1 row directly.
+  expect_equal(sm$p_urban[3], a1[1] / sum(a1), tolerance = 1e-12)
+  ## Smoothing pulls A1 toward the (more rural) marginal.
+  expect_lt(sm$p_urban[3], 0.9)
 
   ## Without `prior`, the total-weighted geo prior is derived (no warning
   ## needed for k = 1 rows, but the fold uses it).

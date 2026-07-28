@@ -288,6 +288,14 @@ check_name_dict <- function(df, what) {
 #'   warning) when `name_dict` is supplied.
 #' @param geography_type `"cvap"` (default) or `"vap"` — selects the
 #'   bundled geography table when `geo_dict` is not supplied.
+#' @param geo_smooth Pseudo-count, in people, used to shrink each
+#'   geography's composition toward the population-weighted marginal of
+#'   the whole geography table before the fold — see [geo_prior()] for
+#'   the formula and rationale. Default `1`, matching [predict_race()] /
+#'   [predict_names()]; `0` folds in the published shares unchanged.
+#'   With a user-supplied `geo_dict`, smoothing needs a scale for each
+#'   row and so applies only when `geo_dict` has a `total` column;
+#'   without one it is silently skipped.
 #' @param include_sex Bundled name tables only: when `TRUE` (default),
 #'   append a `p_female` column computed from the first-name-by-sex
 #'   table (`first` field only, compound-first cascade), exactly as
@@ -350,6 +358,7 @@ predict_demog <- function(data,
                           prior = NULL,
                           include_extra = FALSE,
                           geography_type = c("cvap", "vap"),
+                          geo_smooth = 1,
                           include_sex = TRUE,
                           progress = TRUE,
                           n_cores = 1L) {
@@ -357,6 +366,7 @@ predict_demog <- function(data,
     stop("`data` must be a data.frame.", call. = FALSE)
   }
   geography_type <- match.arg(geography_type)
+  geo_smooth <- check_geo_smooth(geo_smooth)
   n_cores <- resolve_n_cores(n_cores, nrow(data))
 
   ## ---- Column detection (case-insensitive, as in predict_names) ----
@@ -610,11 +620,18 @@ predict_demog <- function(data,
     if (!is.null(geo_dict)) {
       tbl_ids <- as.character(geo_dict$geoid)
       tbl_pm  <- as.matrix(geo_dict[, groups, drop = FALSE])
+      tbl_tot <- geo_dict[["total"]]
+      ## No `total` column means no scale to smooth against.
+      smooth_target <- if (!is.null(tbl_tot)) {
+        geo_marginal(geo_dict, groups, tbl_tot)
+      }
       keys <- geo_u
     } else {
       tbl <- geo_table(geo_level, geography_type)
       tbl_ids <- tbl$geoid
       tbl_pm  <- as.matrix(tbl[, groups, drop = FALSE])
+      tbl_tot <- tbl$total
+      smooth_target <- geo_national(geo_level, geography_type)[groups]
       normalizer <- switch(geo_level,
                            zcta        = normalize_zcta,
                            tract       = normalize_tract,
@@ -630,6 +647,20 @@ predict_demog <- function(data,
     valid <- okr & is.finite(rs) & rs > 0   # geo_prior(): NA/zero rows miss
     upm[valid, ] <- upm[valid, , drop = FALSE] / rs[valid]
     upm[!valid, ] <- NA_real_
+
+    ## Pseudo-count shrinkage toward the table's marginal, arithmetic
+    ## identical to smooth_geo_probs() so predict_race() parity holds.
+    if (geo_smooth > 0 && !is.null(smooth_target) && !is.null(tbl_tot) &&
+        any(valid)) {
+      tot <- rep(0, length(geo_u))
+      tot[okr] <- suppressWarnings(as.numeric(tbl_tot)[ridx[okr]])
+      tot[!is.finite(tot) | tot <= 0] <- 0
+      vi <- which(valid)
+      nat <- matrix(as.numeric(smooth_target), nrow = length(vi),
+                    ncol = n_groups, byrow = TRUE)
+      upm[vi, ] <- (tot[vi] * upm[vi, , drop = FALSE] + geo_smooth * nat) /
+        (tot[vi] + geo_smooth)
+    }
 
     gmap <- match(gv, geo_u)
     geo_row <- !is.na(gmap) & valid[ifelse(is.na(gmap), 1L, gmap)]

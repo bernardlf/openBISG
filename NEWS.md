@@ -1,3 +1,86 @@
+# openBISG 0.6.0
+
+## Sampling zeros in the geographic prior no longer annihilate the name evidence
+
+BISG folds the name posterior together with geography as
+`P(R | name, G) ∝ P(R | name) P(R | G) / P(R)`, so a cell of `P(R | G)`
+that is exactly zero forces that group's posterior to zero no matter how
+decisive the name is. The bundled CVAP tables are built from an ACS
+estimate, and at block-group scale a group with nobody in the sample is
+published as zero: 49% of `geo_bg_cvap` rows report no Asian / NHPI
+citizens age 18+, 86% report no AIAN, and 42% of the national CVAP lives
+in a block group with a zero Asian / NHPI count. Those zeros were folded
+in at face value, and the displaced mass landed on whichever surviving
+group had the smallest marginal prior — usually `nh_multi`, whose `P(R)`
+of 0.033 gives it the largest `/P(R)` boost. A record whose name tokens
+are individually 95-98% AAPI could come back `p_aapi = 0` with
+`p_nh_multi` above 0.9: not merely wrong, but confidently wrong.
+
+`geo_prior()`, `predict_race()`, `predict_names()`, and
+`predict_demog()` gain a **`geo_smooth`** argument: a pseudo-count, in
+people, that shrinks each looked-up composition toward the
+population-weighted national marginal of the same table before it is
+folded in — a Dirichlet(`geo_smooth` × national) prior on the
+geography's composition,
+
+```
+p_smooth = (total * p_geo + geo_smooth * p_national) / (total + geo_smooth)
+```
+
+The default is `geo_smooth = 1`. One pseudo-person moves a populated
+cell by well under a tenth of a percentage point but turns an exact zero
+into a small positive share, so geography still weighs heavily against
+the group without ruling it out.
+
+**This changes default numeric output** wherever a geography is
+supplied. Pass `geo_smooth = 0` to restore the previous behavior exactly.
+Over a 10,000-row sample of names joined to block groups, the default
+removes a hard zero from 95% of rows while changing the modal group for
+only 0.24%; the median per-row change is 1e-4 and `predict_demog()`
+still reproduces `predict_names()` to floating-point precision.
+
+## Relation to `wru`'s fBISG
+
+`geo_smooth` is the same correction `wru`'s `model = "fBISG"` applies to
+the geography term. Imai, Olivella & Rosenman (2022) model the published
+counts as `N_g ~ Multinomial(N_g, ζ_g)` over a geography's unknown true
+composition `ζ_g`, place a `Dirichlet(α)` prior on `ζ_g`, and replace
+BISG's `N_rg / Σ N_r'g` with
+`(n⁻ⁱ_rg + N_rg + α_r) / Σ_r'(n⁻ⁱ_r'g + N_r'g + α_r')`. `geo_smooth` is
+that estimator without the `n⁻ⁱ_rg` term. Three differences:
+
+- **Where α points.** `wru` uses a uniform `α = 1` on every category.
+  `geo_smooth` spreads its pseudo-count along the national marginal, so
+  rare groups are not floored at the same level as common ones and the
+  result is invariant to how finely the categories are split.
+- **No pooling across records.** `n⁻ⁱ_rg` is the count of *other records
+  in the input* currently assigned to race `r` in geography `g` — the
+  term that lets fBISG infer that the Census undercounted a group in a
+  place. `geo_smooth` has no equivalent, by design: using one would mean
+  having every observation for a geographic unit in hand at the moment
+  the estimate is computed, which the per-record and streaming-friendly
+  interfaces here deliberately do not require. `geo_smooth` only
+  declines to believe an exact zero.
+- **Closed form.** fBISG requires a Gibbs sampler and is stochastic and
+  `O(iter × n)`. `geo_smooth` is deterministic, adds no measurable
+  runtime, and preserves the vectorized `predict_demog()` path and its
+  bit-level parity with `predict_names()`.
+
+Scope notes:
+
+- A caller-supplied `predict_race(geography_probs = ...)` is used
+  exactly as given — it carries no population count to smooth against.
+- A custom `predict_demog(geo_dict = ...)` is smoothed only when the
+  table has a `total` column; without one there is no scale, and it is
+  silently left alone.
+- Name-table zeros are **not** smoothed. Those are published Census
+  counts rather than survey estimates, so a token whose count for some
+  group is zero still rules that group out. 38% of first-name rows and
+  62% of surname rows carry at least one zero cell.
+- `geo_prior()` results gain a `geo_smooth` attribute recording the
+  pseudo-count applied, and `predict_race()$geography` gains a matching
+  `geo_smooth` element.
+
 # openBISG 0.5.0
 
 ## `predict_demog()` reaches feature parity with `predict_names()`
