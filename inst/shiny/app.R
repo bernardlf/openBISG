@@ -143,6 +143,8 @@ ui <- fluidPage(
                         placeholder = "11 digits, e.g. 01001020100")),
           div(textInput("block_group", "Census Block Group FIPS",
                         placeholder = "12 digits, e.g. 010010201001")),
+          div(textInput("block", "Census Block FIPS",
+                        placeholder = "15 digits, e.g. 010010201001000")),
           div(radioButtons("geography_type", "Population basis",
                            choices = c("CVAP (citizens 18+)" = "cvap",
                                        "VAP (everyone 18+)"  = "vap"),
@@ -188,6 +190,7 @@ server <- function(input, output, session) {
          zcta            = input$zcta,
          tract           = input$tract,
          block_group     = input$block_group,
+         block           = input$block,
          geography_type  = input$geography_type %||% "cvap")
   }, ignoreNULL = FALSE)
 
@@ -197,15 +200,17 @@ server <- function(input, output, session) {
     f_raw <- raw(r$first); m_raw <- raw(r$middle)
     l_raw <- raw(r$last);  d_raw <- raw(r$maiden)
     z_raw <- raw(r$zcta);  tr_raw <- raw(r$tract);  bg_raw <- raw(r$block_group)
+    bk_raw <- raw(r$block)
     if (!nzchar(f_raw) && !nzchar(m_raw) && !nzchar(l_raw) && !nzchar(d_raw) &&
-        !nzchar(z_raw) && !nzchar(tr_raw) && !nzchar(bg_raw)) {
+        !nzchar(z_raw) && !nzchar(tr_raw) && !nzchar(bg_raw) && !nzchar(bk_raw)) {
       return(div(class = "card meta",
                  "Enter at least one name token in any field, or a geography ID."))
     }
-    geo_supplied <- nzchar(z_raw) + nzchar(tr_raw) + nzchar(bg_raw)
+    geo_supplied <- nzchar(z_raw) + nzchar(tr_raw) + nzchar(bg_raw) +
+      nzchar(bk_raw)
     if (geo_supplied > 1L) {
       return(div(class = "card error",
-                 "Provide at most one of ZIP / ZCTA, Census Tract, or Block Group."))
+                 "Provide at most one of ZIP / ZCTA, Census Tract, Block Group, or Block."))
     }
     name_supplied <- nzchar(f_raw) || nzchar(m_raw) || nzchar(l_raw) || nzchar(d_raw)
     if (!name_supplied && geo_supplied == 0L) {
@@ -223,6 +228,7 @@ server <- function(input, output, session) {
         zcta           = if (nzchar(z_raw))  z_raw  else NULL,
         tract          = if (nzchar(tr_raw)) tr_raw else NULL,
         block_group    = if (nzchar(bg_raw)) bg_raw else NULL,
+        block          = if (nzchar(bk_raw)) bk_raw else NULL,
         geography_type = r$geography_type
       ),
       error = function(e) NULL
@@ -321,8 +327,13 @@ server <- function(input, output, session) {
                             zcta        = "ZIP / ZCTA",
                             tract       = "Census Tract",
                             block_group = "Census Block Group",
+                            block       = "Census Block",
                             user        = "user-supplied",
                             national    = "national prior")
+      if (identical(geo$fallback_from, "block")) {
+        level_label <- paste0(level_label,
+                              " (fallback from an unmatched Census Block)")
+      }
       if (isTRUE(geo$found) && !is.null(geo$probs)) {
         tot <- if (!is.na(geo$total)) sprintf(" (n = %s)",
                                               format(geo$total, big.mark = ","))

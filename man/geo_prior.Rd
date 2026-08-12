@@ -8,8 +8,10 @@ geo_prior(
   zcta = NULL,
   tract = NULL,
   block_group = NULL,
+  block = NULL,
   type = c("cvap", "vap"),
-  geo_smooth = 1
+  geo_smooth = 1,
+  block_fallback = TRUE
 )
 }
 \arguments{
@@ -21,6 +23,10 @@ Summary File "1400000US..." form. Default \code{NULL}.}
 \item{block_group}{12-digit Block Group FIPS (string), or the
 Summary File "1500000US..." form. Default \code{NULL}.}
 
+\item{block}{15-digit Census Block FIPS (string), or the Summary
+File "7500000US..." form. Default \code{NULL}. VAP only — see
+\strong{Block-level lookups}.}
+
 \item{type}{\code{"cvap"} (default) or \code{"vap"}. Picks which population the
 prior is computed over. CVAP excludes non-citizens; VAP is everyone
 age 18+. CVAP is appropriate for predictions about likely voters
@@ -31,26 +37,35 @@ bearer's citizenship status is unknown.}
 looked-up composition toward the national marginal of the same
 table — see \strong{Zero cells and smoothing}. Default \code{1}. Set to \code{0}
 to return the published shares unchanged.}
+
+\item{block_fallback}{When \code{TRUE} (default), a \code{block} GEOID that is
+not among the populated 2020 blocks falls back to its parent block
+group's row (with a message). When \code{FALSE} such a lookup returns
+\code{NULL}. Only consulted for \code{block} lookups.}
 }
 \value{
 A length-6 named numeric vector of proportions in
 \code{\link[=race_groups]{race_groups()}} order, summing to 1. Has the attribute \code{total}
 (the CVAP or VAP count for that geography), \code{level} (\code{"zcta"} /
-\code{"tract"} / \code{"block_group"} / \code{"national"}), \code{type}
-(\code{"cvap"} / \code{"vap"}), and \code{geo_smooth} (the pseudo-count applied).
-Returns \code{NULL} if the geography ID isn't in the bundled table.
+\code{"tract"} / \code{"block_group"} / \code{"block"} / \code{"national"} — the table
+actually used, so a rerouted block lookup reports
+\code{"block_group"}), \code{type} (\code{"cvap"} / \code{"vap"}), \code{geo_smooth} (the
+pseudo-count applied), and — only when a block lookup was rerouted
+to its block group — \code{fallback_from = "block"}. Returns \code{NULL} if
+the geography ID isn't in the bundled table.
 }
 \description{
 Look up the share of each race / Hispanic-origin group for the citizen
 voting age population (CVAP, 2020-2024 ACS Special Tabulation) or the
-voting age population (VAP, 2020 Decennial DHC Table P11) at a ZIP /
-ZCTA, Census Tract, or Census Block Group.
+voting age population (VAP, 2020 Decennial DHC Table P11 / P.L. 94-171
+block counts) at a ZIP / ZCTA, Census Tract, Census Block Group, or
+Census Block.
 }
 \details{
-Exactly one of \code{zcta}, \code{tract}, or \code{block_group} must be supplied. The
-returned vector is the geographic prior \code{P(R | G)} used by
-\code{\link[=predict_race]{predict_race()}} and \code{\link[=predict_names]{predict_names()}} when geography is provided. If
-none of the three is supplied, returns the population-level prior
+Exactly one of \code{zcta}, \code{tract}, \code{block_group}, or \code{block} must be
+supplied. The returned vector is the geographic prior \code{P(R | G)} used
+by \code{\link[=predict_race]{predict_race()}} and \code{\link[=predict_names]{predict_names()}} when geography is provided.
+If none of the four is supplied, returns the population-level prior
 attached to \link{last_names} (the same prior that drives the Naive-Bayes
 name combination).
 
@@ -58,8 +73,30 @@ Sub-five-digit ZIPs are zero-padded to five digits ("601" -> "00601").
 Tract GEOIDs may be supplied either as 11-digit FIPS strings
 ("01001020100") or as the Census Summary File prefixed form
 ("1400000US01001020100"). Block-group GEOIDs are 12 digits, optionally
-with the "1500000US" prefix.
+with the "1500000US" prefix. Block GEOIDs are 15 digits, optionally
+with the "7500000US" prefix.
 }
+\section{Block-level lookups}{
+
+The block table (\link{geo_block_vap}) is built from the 2020 Decennial
+P.L. 94-171 Redistricting Data and covers the 5,704,969 blocks with
+any voting-age population (50 states, DC, and Puerto Rico). Two
+situations reroute a block lookup to the block's parent block group
+(always \code{substr(geoid, 1, 12)}):
+\itemize{
+\item \code{type = "cvap"} — no block-level CVAP table exists
+(citizenship is not collected in the decennial census), so the
+block-group CVAP row is used instead.
+\item The 15-digit GEOID is not among the populated 2020 blocks
+(a zero-VAP block, or an ID that does not exist). When
+\code{block_fallback = TRUE} (default) the block-group VAP row is
+used; when \code{FALSE} the lookup returns \code{NULL}.
+}
+Both reroutes emit a \code{\link[=message]{message()}} (suppressible with
+\code{\link[=suppressMessages]{suppressMessages()}}) and mark the result with attributes
+\code{level = "block_group"} and \code{fallback_from = "block"}.
+}
+
 \section{Zero cells and smoothing}{
 
 The bundled tables contain a great many exact zeros at fine
@@ -90,6 +127,7 @@ Pass \code{geo_smooth = 0} for the raw published shares.
 geo_prior(zcta = "00601")              # ZCTA in Puerto Rico
 geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 geo_prior(zcta = 30307, type = "vap")  # Atlanta-area ZIP, VAP basis
+geo_prior(block = geo_block_vap$geoid[1], type = "vap")  # one block
 
 ## Half of `geo_bg_cvap` estimates zero Asian / NHPI citizens age
 ## 18+. Smoothing replaces the fatal exact zero with a small share.
