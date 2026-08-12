@@ -9,6 +9,7 @@ predict_names(
   include_extra = FALSE,
   geography_type = c("cvap", "vap"),
   geo_smooth = 1,
+  block_fallback = TRUE,
   progress = TRUE,
   n_cores = 1L
 )
@@ -29,6 +30,13 @@ bundled geography table used when a geography column is detected.}
 used to shrink the geographic prior toward the national marginal
 before folding, which keeps sampling zeros in \code{P(R | G)} from
 zeroing out a group the names point to. Default \code{1}; \code{0} disables.}
+
+\item{block_fallback}{Forwarded to \code{\link[=predict_race]{predict_race()}}: when \code{TRUE}
+(default), rows whose \code{block} GEOID is not among the populated
+2020 blocks fall back to their parent block group's proportions;
+when \code{FALSE} those rows get no geography component. A summary
+message reports how many rows were affected either way. Only
+consulted when a \code{block} column is used.}
 
 \item{progress}{If \code{TRUE} (default), prints a one-line text progress
 bar to \code{stderr} showing percent complete, elapsed time, and an
@@ -58,13 +66,20 @@ fixed-shape data frame of per-row probabilities. Recognized columns
 (any subset, named exactly):
 \itemize{
 \item name fields: \code{first}, \code{middle}, \code{last}, \code{maiden}
-\item geography fields: \code{zcta}, \code{tract}, \code{block_group}
+\item geography fields: \code{zcta}, \code{tract}, \code{block_group}, \code{block}
 }
 If multiple geography columns are present the most specific one is
-used (\code{block_group} > \code{tract} > \code{zcta}). If no recognized columns are
-present, an error is raised.
+used (\code{block} > \code{block_group} > \code{tract} > \code{zcta}). If no recognized
+columns are present, an error is raised.
 }
 \details{
+With a \code{block} column, per-row \code{\link[=geo_prior]{geo_prior()}} messages are suppressed
+and summarized once per call instead: rows whose block GEOID is not
+among the populated 2020 blocks fall back to their parent block
+group (see \code{block_fallback}), and with \code{geography_type = "cvap"}
+every block row uses its parent block group's CVAP proportions
+(there is no block-level CVAP table).
+
 Per-row behavior matches \code{\link[=predict_race]{predict_race()}} exactly: compound-first
 cascade for given-name fields; per-token cascade for surname fields;
 maiden tokens replace last in the combined estimate; sex computed

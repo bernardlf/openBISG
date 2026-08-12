@@ -12,6 +12,7 @@ predict_demog(
   include_extra = FALSE,
   geography_type = c("cvap", "vap"),
   geo_smooth = 1,
+  block_fallback = TRUE,
   include_sex = TRUE,
   progress = TRUE,
   n_cores = 1L
@@ -48,6 +49,13 @@ the formula and rationale. Default \code{1}, matching \code{\link[=predict_race]
 With a user-supplied \code{geo_dict}, smoothing needs a scale for each
 row and so applies only when \code{geo_dict} has a \code{total} column;
 without one it is silently skipped.}
+
+\item{block_fallback}{When \code{TRUE} (default), rows whose \code{block}
+GEOID is not among the populated 2020 blocks fall back to their
+parent block group's proportions — see \strong{Block-level geography
+and the block-group fallback}. When \code{FALSE}, those rows get no
+geography component. Only consulted for a \code{block} column with the
+bundled tables.}
 
 \item{include_sex}{Bundled name tables only: when \code{TRUE} (default),
 append a \code{p_female} column computed from the first-name-by-sex
@@ -109,14 +117,40 @@ otherwise).
 
 Detection is case-insensitive, as in \code{\link[=predict_names]{predict_names()}}: any subset of
 the name fields \code{first}, \code{middle}, \code{last}, \code{maiden} and the
-geography fields \code{zcta}, \code{tract}, \code{block_group}. When \code{geo_dict} is
-supplied, a \code{geoid} column is also recognized and takes precedence;
-its values (and, with \code{geo_dict}, the values of any other geography
-column) are matched against \code{geo_dict$geoid} as-is, with no
+geography fields \code{zcta}, \code{tract}, \code{block_group}, \code{block}. When
+\code{geo_dict} is supplied, a \code{geoid} column is also recognized and takes
+precedence; its values (and, with \code{geo_dict}, the values of any other
+geography column) are matched against \code{geo_dict$geoid} as-is, with no
 normalization. With the bundled geography tables the usual ID
 normalization applies (ZIP zero-padding, \code{"1400000US"} /
-\code{"1500000US"} prefix stripping) and the most specific column wins
-(\code{block_group} > \code{tract} > \code{zcta}).
+\code{"1500000US"} / \code{"7500000US"} prefix stripping) and the most specific
+column wins (\code{block} > \code{block_group} > \code{tract} > \code{zcta}).
+}
+
+\section{Block-level geography and the block-group fallback}{
+
+A \code{block} column holds 15-digit 2020 Census Block GEOIDs and is
+matched against \link{geo_block_vap}, which covers the 5,704,969 blocks
+with any voting-age population (50 states, DC, and Puerto Rico) and
+stores integer VAP counts (row-normalized to proportions before the
+fold). Two situations reroute a row to the block's parent block
+group (\code{substr(geoid, 1, 12)}), each reported once per call via
+\code{\link[=message]{message()}} (suppressible with \code{\link[=suppressMessages]{suppressMessages()}}):
+\itemize{
+\item \code{geography_type = "cvap"} — no block-level CVAP table exists
+(citizenship is not collected in the decennial census), so every
+block row uses its block group's CVAP proportions instead.
+\item A block GEOID not among the populated 2020 blocks (zero-VAP
+block, or an ID that does not exist). With
+\code{block_fallback = TRUE} (default) such rows use their block
+group's VAP proportions, and the message reports how many rows
+fell back; with \code{block_fallback = FALSE} they get no geography
+component (name-only posterior), and the message reports how
+many rows were skipped.
+}
+\code{block_fallback} is ignored when \code{geo_dict} is supplied (a \code{block}
+column is then matched against \code{geo_dict$geoid} as-is, like any
+other geography column).
 }
 
 \section{User-supplied name dictionaries}{

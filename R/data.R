@@ -202,3 +202,49 @@
 
 #' @rdname geo_zcta_vap
 "geo_bg_vap"
+
+#' Voting age population counts by race / Hispanic origin for every
+#' populated 2020 Census Block
+#'
+#' Block-level geographic prior built from the 2020 Decennial Census
+#' **P.L. 94-171 Redistricting Data** (Table P4, "Hispanic or Latino,
+#' and Not Hispanic or Latino by Race for the Population 18 Years and
+#' Over"). One row per 2020 census block with a nonzero voting-age
+#' population — 5,704,969 of the 8,174,955 tabulated blocks across the
+#' 50 states, DC, and Puerto Rico (which the DHC-based VAP tables lack).
+#'
+#' Unlike the other bundled geography tables, this one stores **integer
+#' counts, not proportions**: the six group columns sum exactly to
+#' `total` on every row. Counts compress far better than derived
+#' floating-point shares (this table is by far the largest shipped),
+#' and every consumer — [geo_prior()], [predict_race()],
+#' [predict_names()], [predict_demog()] — row-normalizes to proportions
+#' on the fly, so the two schemas produce identical results.
+#'
+#' The mapping from P4 categories to the six-group schema matches the
+#' DHC P11 mapping used for [geo_zcta_vap]: `white` / `black` / `aian`
+#' are the not-Hispanic alone counts, `aapi` is not-Hispanic Asian +
+#' NHPI, `nh_multi` is not-Hispanic Some Other Race alone + Two or More
+#' Races, and `hispanic` is Hispanic or Latino of any race.
+#'
+#' There is no CVAP companion table: citizenship is not collected in
+#' the decennial census, and the CVAP Special Tabulation's smallest
+#' geography is the block group. Block lookups with `type = "cvap"`
+#' therefore use the block's parent block group (always
+#' `substr(geoid, 1, 12)`), as do lookups for blocks absent from this
+#' table (zero-VAP blocks) — see [geo_prior()] and the
+#' `block_fallback` arguments.
+#'
+#' @format A data frame with 5,704,969 rows and 8 columns:
+#' \describe{
+#'   \item{geoid}{15-digit block FIPS: state(2) + county(3) + tract(6)
+#'     + block(4). The first block digit is the block-group digit.}
+#'   \item{total}{VAP count for the block (integer, always positive).}
+#'   \item{white,black,aian,aapi,nh_multi,hispanic}{Integer VAP counts
+#'     per group; rows sum exactly to `total`.}
+#' }
+#' @source U.S. Census Bureau, 2020 Census P.L. 94-171 Redistricting
+#'   Data Summary Files.
+#'   <https://www.census.gov/programs-surveys/decennial-census/about/rdo/summary-files.html>.
+#' @seealso [geo_prior()], [predict_demog()], [geo_zcta_vap].
+"geo_block_vap"
