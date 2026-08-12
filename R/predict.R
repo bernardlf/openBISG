@@ -132,15 +132,26 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'   proportionally to the Census prior at build time. Default `FALSE`.
 #'   Sex prediction is unaffected — the Rosenman dataset has no sex
 #'   information, so the `first_names_sex` table is the only source.
-#' @param zcta,tract,block_group Optional geography identifier. At most
-#'   one may be supplied. When given, the name posterior is folded
+#' @param zcta,tract,block_group,block Optional geography identifier. At
+#'   most one may be supplied. When given, the name posterior is folded
 #'   together with the geographic prior under conditional independence
 #'   given race (BISG / BIFSG):
 #'   \deqn{P(R | \mathrm{name}, G) \propto P(R | \mathrm{name})\,P(R | G)\,/\,P(R)}.
 #'   See [geo_prior()] for accepted formats and the bundled tables.
+#'   `block` takes a 15-digit 2020 Census Block GEOID; block-level data
+#'   are VAP only, and a block that is not among the populated 2020
+#'   blocks falls back to its parent block group (see [geo_prior()],
+#'   whose messages this function inherits).
 #' @param geography_type `"cvap"` (default) or `"vap"` — picks which
 #'   bundled geography table feeds the prior when `zcta` / `tract` /
-#'   `block_group` is supplied.
+#'   `block_group` / `block` is supplied. There is no block-level CVAP
+#'   table, so `block` with `"cvap"` uses the block's parent block
+#'   group.
+#' @param block_fallback Forwarded to [geo_prior()]: when `TRUE`
+#'   (default), a `block` GEOID not among the populated 2020 blocks
+#'   falls back to its parent block group's row; when `FALSE` the
+#'   geography lookup is recorded as not found. Only consulted for
+#'   `block` lookups.
 #' @param geo_smooth Pseudo-count, in people, used to shrink the bundled
 #'   geographic prior toward the national marginal of the same table
 #'   before it is folded in (default `1`). This keeps an exact zero in
@@ -172,7 +183,9 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'       otherwise a list describing the lookup: `level`, `type`, `key`,
 #'       `total`, `source`, `found`, the `geo_smooth` pseudo-count that
 #'       was applied, the (smoothed) `probs` fed to the fold, and
-#'       `combined` — the BISG posterior `P(R | name, G)`.}
+#'       `combined` — the BISG posterior `P(R | name, G)`. When a
+#'       `block` lookup was rerouted to its parent block group, `level`
+#'       is `"block_group"` and `fallback_from` is `"block"`.}
 #'     \item{sex}{`list(probs = ..., tokens, n)` — or `NULL` if no
 #'       first-name input was provided.}
 #'   }
@@ -198,8 +211,10 @@ predict_race <- function(first = NULL, middle = NULL,
                          last = NULL, maiden = NULL,
                          include_extra = FALSE,
                          zcta = NULL, tract = NULL, block_group = NULL,
+                         block = NULL,
                          geography_type = c("cvap", "vap"),
                          geo_smooth = 1,
+                         block_fallback = TRUE,
                          geography_probs = NULL) {
   geography_type <- match.arg(geography_type)
   geo_smooth <- check_geo_smooth(geo_smooth)
@@ -211,11 +226,11 @@ predict_race <- function(first = NULL, middle = NULL,
   total_tokens <- length(first_tokens) + length(middle_tokens) +
     length(last_tokens) + length(maiden_tokens)
   geo_input_given <- !is.null(zcta) || !is.null(tract) ||
-    !is.null(block_group) || !is.null(geography_probs)
+    !is.null(block_group) || !is.null(block) || !is.null(geography_probs)
   if (total_tokens == 0L && !geo_input_given) {
     stop("Provide at least one given-name or surname token in `first`, ",
          "`middle`, `last`, or `maiden`, or a geography (`zcta`, ",
-         "`tract`, `block_group`, or `geography_probs`).",
+         "`tract`, `block_group`, `block`, or `geography_probs`).",
          call. = FALSE)
   }
 
@@ -273,14 +288,15 @@ predict_race <- function(first = NULL, middle = NULL,
     )
   }
 
-  ## Geography prior. At most one of zcta / tract / block_group / geography_probs.
+  ## Geography prior. At most one of zcta / tract / block_group / block /
+  ## geography_probs.
   geo_supplied <- !vapply(
-    list(zcta, tract, block_group, geography_probs),
+    list(zcta, tract, block_group, block, geography_probs),
     is.null, logical(1)
   )
   if (sum(geo_supplied) > 1L) {
-    stop("Provide at most one of `zcta`, `tract`, `block_group`, or `geography_probs`.",
-         call. = FALSE)
+    stop("Provide at most one of `zcta`, `tract`, `block_group`, ",
+         "`block`, or `geography_probs`.", call. = FALSE)
   }
   geo_probs <- NULL
   geo_meta  <- list(level = NULL, type = geography_type, total = NA_integer_,
@@ -298,22 +314,27 @@ predict_race <- function(first = NULL, middle = NULL,
     geo_meta$level      <- "user"
     geo_meta$found      <- TRUE
     geo_meta$geo_smooth <- 0      # caller-supplied priors are used as given
-  } else if (any(geo_supplied[1:3])) {
+  } else if (any(geo_supplied[1:4])) {
     p <- geo_prior(zcta = zcta, tract = tract, block_group = block_group,
-                   type = geography_type, geo_smooth = geo_smooth)
+                   block = block,
+                   type = geography_type, geo_smooth = geo_smooth,
+                   block_fallback = block_fallback)
     geo_meta$key <- if (!is.null(zcta)) as.character(zcta)
                     else if (!is.null(tract)) as.character(tract)
-                    else as.character(block_group)
+                    else if (!is.null(block_group)) as.character(block_group)
+                    else as.character(block)
     geo_meta$source <- "bundled"
     if (!is.null(p)) {
       geo_probs       <- p
       geo_meta$level  <- attr(p, "level")
       geo_meta$total  <- attr(p, "total")
       geo_meta$found  <- TRUE
+      geo_meta$fallback_from <- attr(p, "fallback_from")
     } else {
       geo_meta$level  <- if (!is.null(zcta)) "zcta"
                          else if (!is.null(tract)) "tract"
-                         else "block_group"
+                         else if (!is.null(block_group)) "block_group"
+                         else "block"
       geo_meta$found  <- FALSE
     }
   }
@@ -387,11 +408,18 @@ predict_sex <- function(first = NULL) {
 #' (any subset, named exactly):
 #' \itemize{
 #'   \item name fields: `first`, `middle`, `last`, `maiden`
-#'   \item geography fields: `zcta`, `tract`, `block_group`
+#'   \item geography fields: `zcta`, `tract`, `block_group`, `block`
 #' }
 #' If multiple geography columns are present the most specific one is
-#' used (`block_group` > `tract` > `zcta`). If no recognized columns are
-#' present, an error is raised.
+#' used (`block` > `block_group` > `tract` > `zcta`). If no recognized
+#' columns are present, an error is raised.
+#'
+#' With a `block` column, per-row [geo_prior()] messages are suppressed
+#' and summarized once per call instead: rows whose block GEOID is not
+#' among the populated 2020 blocks fall back to their parent block
+#' group (see `block_fallback`), and with `geography_type = "cvap"`
+#' every block row uses its parent block group's CVAP proportions
+#' (there is no block-level CVAP table).
 #'
 #' Per-row behavior matches [predict_race()] exactly: compound-first
 #' cascade for given-name fields; per-token cascade for surname fields;
@@ -416,6 +444,12 @@ predict_sex <- function(first = NULL) {
 #'   used to shrink the geographic prior toward the national marginal
 #'   before folding, which keeps sampling zeros in `P(R | G)` from
 #'   zeroing out a group the names point to. Default `1`; `0` disables.
+#' @param block_fallback Forwarded to [predict_race()]: when `TRUE`
+#'   (default), rows whose `block` GEOID is not among the populated
+#'   2020 blocks fall back to their parent block group's proportions;
+#'   when `FALSE` those rows get no geography component. A summary
+#'   message reports how many rows were affected either way. Only
+#'   consulted when a `block` column is used.
 #' @param progress If `TRUE` (default), prints a one-line text progress
 #'   bar to `stderr` showing percent complete, elapsed time, and an
 #'   estimated time remaining. Pass `FALSE` to suppress (e.g. inside
@@ -453,6 +487,7 @@ predict_names <- function(data,
                           include_extra = FALSE,
                           geography_type = c("cvap", "vap"),
                           geo_smooth = 1,
+                          block_fallback = TRUE,
                           progress = TRUE,
                           n_cores = 1L) {
   if (!is.data.frame(data)) {
@@ -462,7 +497,7 @@ predict_names <- function(data,
   geo_smooth <- check_geo_smooth(geo_smooth)
 
   recognized_names <- c("first", "middle", "last", "maiden")
-  recognized_geo   <- c("block_group", "tract", "zcta")  # most specific first
+  recognized_geo   <- c("block", "block_group", "tract", "zcta")  # most specific first
   recognized_all   <- c(recognized_names, recognized_geo)
 
   ## Case-insensitive detection: match each recognized key against
@@ -505,26 +540,44 @@ predict_names <- function(data,
   lc <- pick("last");   xc <- pick("maiden")
   zc <- pick("zcta");   tc <- pick("tract")
   bc <- pick("block_group")
+  kc <- pick("block")
+  block_active <- !is.na(kc)
 
-  ## Process a single row into a length-7 numeric vector
-  ## (race probs in race_keys order + p_female). Used by both paths.
+  ## Process a single row into a length-10 numeric vector: race probs in
+  ## race_keys order + p_female, then three block-lookup bookkeeping
+  ## flags (had a block value; fell back to its block group; no usable
+  ## geography found). Per-row geo_prior() messages are suppressed on
+  ## the block path and summarized once after the loop.
   process_row <- function(i) {
+    run <- function() predict_race(
+      first          = cell(fc, i),
+      middle         = cell(mc, i),
+      last           = cell(lc, i),
+      maiden         = cell(xc, i),
+      include_extra  = include_extra,
+      zcta           = cell(zc, i),
+      tract          = cell(tc, i),
+      block_group    = cell(bc, i),
+      block          = cell(kc, i),
+      geography_type = geography_type,
+      geo_smooth     = geo_smooth,
+      block_fallback = block_fallback
+    )
     pred <- tryCatch(
-      predict_race(
-        first          = cell(fc, i),
-        middle         = cell(mc, i),
-        last           = cell(lc, i),
-        maiden         = cell(xc, i),
-        include_extra  = include_extra,
-        zcta           = cell(zc, i),
-        tract          = cell(tc, i),
-        block_group    = cell(bc, i),
-        geography_type = geography_type,
-        geo_smooth     = geo_smooth
-      ),
+      if (block_active) suppressMessages(run()) else run(),
       error = function(e) NULL
     )
-    row <- rep(NA_real_, 7L)
+    row <- c(rep(NA_real_, 7L), 0, 0, 0)
+    if (block_active && !is.null(cell(kc, i))) {
+      row[8] <- 1
+      g <- if (!is.null(pred)) pred$geography
+      if (!is.null(g)) {
+        if (isTRUE(g$found) && identical(g$fallback_from, "block")) {
+          row[9] <- 1
+        }
+        if (!isTRUE(g$found)) row[10] <- 1
+      }
+    }
     if (is.null(pred)) return(row)
     race_probs <- NULL
     if (!is.null(pred$geography) && !is.null(pred$geography$combined)) {
@@ -539,9 +592,9 @@ predict_names <- function(data,
     row
   }
 
-  ## Process a chunk of rows into an (length(idx) x 7) numeric matrix.
+  ## Process a chunk of rows into an (length(idx) x 10) numeric matrix.
   process_chunk <- function(idx) {
-    m <- matrix(NA_real_, nrow = length(idx), ncol = 7L)
+    m <- matrix(NA_real_, nrow = length(idx), ncol = 10L)
     for (j in seq_along(idx)) m[j, ] <- process_row(idx[j])
     m
   }
@@ -555,8 +608,7 @@ predict_names <- function(data,
     pb$start()
   }
 
-  out_mat <- matrix(NA_real_, nrow = n, ncol = 7L,
-                    dimnames = list(NULL, out_cols))
+  out_mat <- matrix(NA_real_, nrow = n, ncol = 10L)
 
   if (use_parallel) {
     if (isTRUE(progress)) {
@@ -568,7 +620,6 @@ predict_names <- function(data,
     chunks <- split(seq_len(n), cut(seq_len(n), n_cores, labels = FALSE))
     results <- parallel::mclapply(chunks, process_chunk, mc.cores = n_cores)
     out_mat <- do.call(rbind, results)
-    colnames(out_mat) <- out_cols
     if (isTRUE(progress)) {
       cat(sprintf("predict_names: done in %.1fs (%.0f rows/s).\n",
                   as.numeric(difftime(Sys.time(), par_start, units = "secs")),
@@ -585,5 +636,43 @@ predict_names <- function(data,
     if (show_progress) pb$done()
   }
 
-  as.data.frame(out_mat, stringsAsFactors = FALSE)
+  ## ---- One summary message for the block-lookup bookkeeping ----
+  if (block_active) {
+    n_b  <- sum(out_mat[, 8], na.rm = TRUE)   # rows with a block value
+    n_fb <- sum(out_mat[, 9], na.rm = TRUE)   # fell back to block group
+    n_ng <- sum(out_mat[, 10], na.rm = TRUE)  # no usable geography found
+    if (geography_type == "cvap" && n_b > 0) {
+      message("predict_names(): no block-level CVAP table exists ",
+              "(citizenship is not collected in the decennial census); ",
+              "the ", format(n_b, big.mark = ","), " `block` row(s) used ",
+              "their parent block group from `geo_bg_cvap` for the ",
+              "geography component.")
+    } else if (geography_type == "vap") {
+      if (isTRUE(block_fallback) && n_fb > 0) {
+        msg <- sprintf(
+          paste0("predict_names(): %s of %s `block` row(s) were not ",
+                 "matched to a populated 2020 census block; falling back ",
+                 "to their block group's proportions for the geography ",
+                 "component (disable with `block_fallback = FALSE`)."),
+          format(n_fb, big.mark = ","), format(n_b, big.mark = ","))
+        if (n_ng > 0) {
+          msg <- paste0(msg, sprintf(
+            " A further %s row(s) had no usable geography match at all.",
+            format(n_ng, big.mark = ",")))
+        }
+        message(msg)
+      } else if (!isTRUE(block_fallback) && n_ng > 0) {
+        message(sprintf(
+          paste0("predict_names(): %s of %s `block` row(s) were not ",
+                 "matched to a populated 2020 census block; ",
+                 "`block_fallback = FALSE`, so no geography component ",
+                 "was applied to those rows."),
+          format(n_ng, big.mark = ","), format(n_b, big.mark = ",")))
+      }
+    }
+  }
+
+  out <- out_mat[, 1:7, drop = FALSE]
+  colnames(out) <- out_cols
+  as.data.frame(out, stringsAsFactors = FALSE)
 }
