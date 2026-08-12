@@ -223,14 +223,38 @@ check_name_dict <- function(df, what) {
 #' @section Recognized input columns:
 #' Detection is case-insensitive, as in [predict_names()]: any subset of
 #' the name fields `first`, `middle`, `last`, `maiden` and the
-#' geography fields `zcta`, `tract`, `block_group`. When `geo_dict` is
-#' supplied, a `geoid` column is also recognized and takes precedence;
-#' its values (and, with `geo_dict`, the values of any other geography
-#' column) are matched against `geo_dict$geoid` as-is, with no
+#' geography fields `zcta`, `tract`, `block_group`, `block`. When
+#' `geo_dict` is supplied, a `geoid` column is also recognized and takes
+#' precedence; its values (and, with `geo_dict`, the values of any other
+#' geography column) are matched against `geo_dict$geoid` as-is, with no
 #' normalization. With the bundled geography tables the usual ID
 #' normalization applies (ZIP zero-padding, `"1400000US"` /
-#' `"1500000US"` prefix stripping) and the most specific column wins
-#' (`block_group` > `tract` > `zcta`).
+#' `"1500000US"` / `"7500000US"` prefix stripping) and the most specific
+#' column wins (`block` > `block_group` > `tract` > `zcta`).
+#'
+#' @section Block-level geography and the block-group fallback:
+#' A `block` column holds 15-digit 2020 Census Block GEOIDs and is
+#' matched against [geo_block_vap], which covers the 5,704,969 blocks
+#' with any voting-age population (50 states, DC, and Puerto Rico) and
+#' stores integer VAP counts (row-normalized to proportions before the
+#' fold). Two situations reroute a row to the block's parent block
+#' group (`substr(geoid, 1, 12)`), each reported once per call via
+#' [message()] (suppressible with [suppressMessages()]):
+#' \itemize{
+#'   \item `geography_type = "cvap"` — no block-level CVAP table exists
+#'     (citizenship is not collected in the decennial census), so every
+#'     block row uses its block group's CVAP proportions instead.
+#'   \item A block GEOID not among the populated 2020 blocks (zero-VAP
+#'     block, or an ID that does not exist). With
+#'     `block_fallback = TRUE` (default) such rows use their block
+#'     group's VAP proportions, and the message reports how many rows
+#'     fell back; with `block_fallback = FALSE` they get no geography
+#'     component (name-only posterior), and the message reports how
+#'     many rows were skipped.
+#' }
+#' `block_fallback` is ignored when `geo_dict` is supplied (a `block`
+#' column is then matched against `geo_dict$geoid` as-is, like any
+#' other geography column).
 #'
 #' @section User-supplied name dictionaries:
 #' `name_dict` may be a single data frame (used for given names and
@@ -296,6 +320,12 @@ check_name_dict <- function(df, what) {
 #'   With a user-supplied `geo_dict`, smoothing needs a scale for each
 #'   row and so applies only when `geo_dict` has a `total` column;
 #'   without one it is silently skipped.
+#' @param block_fallback When `TRUE` (default), rows whose `block`
+#'   GEOID is not among the populated 2020 blocks fall back to their
+#'   parent block group's proportions — see **Block-level geography
+#'   and the block-group fallback**. When `FALSE`, those rows get no
+#'   geography component. Only consulted for a `block` column with the
+#'   bundled tables.
 #' @param include_sex Bundled name tables only: when `TRUE` (default),
 #'   append a `p_female` column computed from the first-name-by-sex
 #'   table (`first` field only, compound-first cascade), exactly as
@@ -359,6 +389,7 @@ predict_demog <- function(data,
                           include_extra = FALSE,
                           geography_type = c("cvap", "vap"),
                           geo_smooth = 1,
+                          block_fallback = TRUE,
                           include_sex = TRUE,
                           progress = TRUE,
                           n_cores = 1L) {
@@ -371,7 +402,7 @@ predict_demog <- function(data,
 
   ## ---- Column detection (case-insensitive, as in predict_names) ----
   recognized_names <- c("first", "middle", "last", "maiden")
-  recognized_geo   <- c("geoid", "block_group", "tract", "zcta")
+  recognized_geo   <- c("geoid", "block", "block_group", "tract", "zcta")
   lower_names <- tolower(names(data))
   match_idx <- match(c(recognized_names, recognized_geo), lower_names)
   col_map <- stats::setNames(names(data)[match_idx],
@@ -389,7 +420,7 @@ predict_demog <- function(data,
   if (length(name_cols) == 0L && is.na(geo_level)) {
     stop("No recognized columns in `data`. Expected any of ",
          "(case-insensitive): ",
-         paste(c(recognized_names, "zcta", "tract", "block_group",
+         paste(c(recognized_names, "zcta", "tract", "block_group", "block",
                  if (!is.null(geo_dict)) "geoid"), collapse = ", "), ".",
          call. = FALSE)
   }
@@ -617,6 +648,7 @@ predict_demog <- function(data,
   if (use_geo) {
     gv <- col_values(geo_level)
     geo_u <- setdiff(unique(gv), "")
+    block_native <- FALSE       # bundled block-level lookup in effect
     if (!is.null(geo_dict)) {
       tbl_ids <- as.character(geo_dict$geoid)
       tbl_pm  <- as.matrix(geo_dict[, groups, drop = FALSE])
@@ -627,42 +659,142 @@ predict_demog <- function(data,
       }
       keys <- geo_u
     } else {
-      tbl <- geo_table(geo_level, geography_type)
+      lookup_level <- geo_level
+      if (geo_level == "block") {
+        keys <- vapply(geo_u, normalize_block, character(1),
+                       USE.NAMES = FALSE)
+        if (geography_type == "cvap") {
+          ## No block-level CVAP exists (citizenship is not collected in
+          ## the decennial census); every block row uses its parent
+          ## block group's CVAP proportions instead.
+          if (length(geo_u)) {
+            message("predict_demog(): no block-level CVAP table exists ",
+                    "(citizenship is not collected in the decennial ",
+                    "census); using each block's parent block group ",
+                    "from `geo_bg_cvap` for the geography component.")
+          }
+          lookup_level <- "block_group"
+          keys <- ifelse(is.na(keys), NA_character_,
+                         substr(keys, 1L, 12L))
+        } else {
+          block_native <- TRUE
+        }
+      } else {
+        normalizer <- switch(geo_level,
+                             zcta        = normalize_zcta,
+                             tract       = normalize_tract,
+                             block_group = normalize_block_group)
+        keys <- vapply(geo_u, normalizer, character(1), USE.NAMES = FALSE)
+      }
+      tbl <- geo_table(lookup_level, geography_type)
       tbl_ids <- tbl$geoid
       tbl_pm  <- as.matrix(tbl[, groups, drop = FALSE])
       tbl_tot <- tbl$total
-      smooth_target <- geo_national(geo_level, geography_type)[groups]
-      normalizer <- switch(geo_level,
-                           zcta        = normalize_zcta,
-                           tract       = normalize_tract,
-                           block_group = normalize_block_group)
-      keys <- vapply(geo_u, normalizer, character(1), USE.NAMES = FALSE)
+      smooth_target <- geo_national(lookup_level, geography_type)[groups]
     }
     storage.mode(tbl_pm) <- "double"
     ridx <- match(keys, tbl_ids)
     upm <- matrix(NA_real_, nrow = length(geo_u), ncol = n_groups)
     okr <- !is.na(ridx)
     upm[okr, ] <- tbl_pm[ridx[okr], , drop = FALSE]
+
+    ## Per-unique-value smoothing scale and shrinkage target, so
+    ## block-group fallback rows can carry their own table's total and
+    ## marginal alongside the main table's.
+    utot <- rep(0, length(geo_u))
+    if (!is.null(tbl_tot)) {
+      utot[okr] <- suppressWarnings(as.numeric(tbl_tot)[ridx[okr]])
+      utot[!is.finite(utot) | utot <= 0] <- 0
+    }
+    tgtm <- if (!is.null(smooth_target)) {
+      matrix(as.numeric(smooth_target), nrow = length(geo_u),
+             ncol = n_groups, byrow = TRUE)
+    }
+
+    ## ---- Block -> block-group fallback (bundled VAP path only) ----
+    ## `geo_block_vap` covers populated blocks only; a valid 15-digit
+    ## GEOID that misses is a zero-VAP block (or a nonexistent one).
+    ublock_miss <- logical(length(geo_u))
+    ufell_back  <- logical(length(geo_u))
+    if (block_native) {
+      ublock_miss <- !okr & !is.na(keys)
+      if (any(ublock_miss) && isTRUE(block_fallback)) {
+        bg <- geo_table("block_group", geography_type)
+        bgi <- match(substr(keys[ublock_miss], 1L, 12L), bg$geoid)
+        bghit <- !is.na(bgi)
+        if (any(bghit)) {
+          rows_fb <- which(ublock_miss)[bghit]
+          bg_pm <- as.matrix(bg[, groups, drop = FALSE])
+          storage.mode(bg_pm) <- "double"
+          upm[rows_fb, ] <- bg_pm[bgi[bghit], , drop = FALSE]
+          bt <- suppressWarnings(as.numeric(bg$total)[bgi[bghit]])
+          bt[!is.finite(bt) | bt <= 0] <- 0
+          utot[rows_fb] <- bt
+          if (!is.null(tgtm)) {
+            bg_target <- geo_national("block_group", geography_type)[groups]
+            tgtm[rows_fb, ] <- matrix(as.numeric(bg_target),
+                                      nrow = length(rows_fb),
+                                      ncol = n_groups, byrow = TRUE)
+          }
+          ufell_back[rows_fb] <- TRUE
+        }
+      }
+    }
+
     rs <- rowSums(upm)
-    valid <- okr & is.finite(rs) & rs > 0   # geo_prior(): NA/zero rows miss
+    valid <- is.finite(rs) & rs > 0   # geo_prior(): NA/zero rows miss
     upm[valid, ] <- upm[valid, , drop = FALSE] / rs[valid]
     upm[!valid, ] <- NA_real_
 
     ## Pseudo-count shrinkage toward the table's marginal, arithmetic
     ## identical to smooth_geo_probs() so predict_race() parity holds.
-    if (geo_smooth > 0 && !is.null(smooth_target) && !is.null(tbl_tot) &&
+    if (geo_smooth > 0 && !is.null(tgtm) && !is.null(tbl_tot) &&
         any(valid)) {
-      tot <- rep(0, length(geo_u))
-      tot[okr] <- suppressWarnings(as.numeric(tbl_tot)[ridx[okr]])
-      tot[!is.finite(tot) | tot <= 0] <- 0
       vi <- which(valid)
-      nat <- matrix(as.numeric(smooth_target), nrow = length(vi),
-                    ncol = n_groups, byrow = TRUE)
-      upm[vi, ] <- (tot[vi] * upm[vi, , drop = FALSE] + geo_smooth * nat) /
-        (tot[vi] + geo_smooth)
+      upm[vi, ] <- (utot[vi] * upm[vi, , drop = FALSE] +
+                      geo_smooth * tgtm[vi, , drop = FALSE]) /
+        (utot[vi] + geo_smooth)
     }
 
     gmap <- match(gv, geo_u)
+
+    ## ---- Report rows not matched to a populated block ----
+    if (block_native && any(ublock_miss)) {
+      gm1 <- ifelse(is.na(gmap), 1L, gmap)
+      has_id <- !is.na(gmap)
+      rmiss <- has_id & ublock_miss[gm1]
+      n_miss <- sum(rmiss)
+      if (n_miss > 0L) {
+        n_block_rows <- sum(has_id)
+        if (isTRUE(block_fallback)) {
+          n_used <- sum(rmiss & ufell_back[gm1] & valid[gm1])
+          msg <- sprintf(
+            paste0("predict_demog(): %s of %s `block` row(s) were not ",
+                   "matched to a populated 2020 census block; falling ",
+                   "back to their block group's proportions for the ",
+                   "geography component (disable with ",
+                   "`block_fallback = FALSE`)."),
+            format(n_miss, big.mark = ","),
+            format(n_block_rows, big.mark = ","))
+          if (n_used < n_miss) {
+            msg <- paste0(msg, sprintf(
+              paste0(" For %s of those the block group had no usable ",
+                     "row either, so no geography component was ",
+                     "applied."),
+              format(n_miss - n_used, big.mark = ",")))
+          }
+        } else {
+          msg <- sprintf(
+            paste0("predict_demog(): %s of %s `block` row(s) were not ",
+                   "matched to a populated 2020 census block; ",
+                   "`block_fallback = FALSE`, so no geography component ",
+                   "was applied to those rows."),
+            format(n_miss, big.mark = ","),
+            format(n_block_rows, big.mark = ","))
+        }
+        message(msg)
+      }
+    }
     geo_row <- !is.na(gmap) & valid[ifelse(is.na(gmap), 1L, gmap)]
     geo_name_fold <- any(geo_row & matched)
     if (any(geo_row)) {

@@ -1,32 +1,48 @@
 ## Geography-aware priors for race / Hispanic-origin prediction.
 ##
-## The package ships six lazy-loaded data frames built from the
-## 2020-2024 ACS Citizen Voting Age Population (CVAP) Special Tabulation
-## and the 2020 Decennial Demographic and Housing Characteristics File
-## (DHC) Table P11 (VAP):
+## The package ships seven lazy-loaded data frames built from the
+## 2020-2024 ACS Citizen Voting Age Population (CVAP) Special Tabulation,
+## the 2020 Decennial Demographic and Housing Characteristics File
+## (DHC) Table P11 (VAP), and the 2020 Decennial P.L. 94-171
+## Redistricting Data (block-level VAP):
 ##
 ##   geo_zcta_cvap   geo_zcta_vap
 ##   geo_tract_cvap  geo_tract_vap
 ##   geo_bg_cvap     geo_bg_vap
+##                   geo_block_vap
 ##
-## Each has columns geoid, total, white, black, aian, aapi, nh_multi,
-## hispanic — proportions per row sum to 1 (NA when total = 0).
+## The ZCTA / tract / block-group tables have columns geoid, total,
+## white, black, aian, aapi, nh_multi, hispanic — proportions per row
+## sum to 1 (NA when total = 0). geo_block_vap stores integer COUNTS
+## instead of proportions (rows sum to `total` exactly) and only the
+## 5.7M blocks with total > 0 — every consumer below row-normalizes
+## before use, so the two schemas fold identically. There is no
+## geo_block_cvap: citizenship is not collected in the decennial census
+## and the CVAP Special Tabulation stops at block groups.
 ##
-## See data-raw/build_geo.R for derivation.
+## See data-raw/build_geo.R and data-raw/build_geo_block.R for
+## derivation.
 
-geo_levels <- function() c("zcta", "tract", "block_group")
+geo_levels <- function() c("zcta", "tract", "block_group", "block")
 geo_types  <- function() c("cvap", "vap")
 
 geo_table <- function(level, type) {
   level <- match.arg(level, geo_levels())
   type  <- match.arg(type,  geo_types())
+  if (level == "block" && type == "cvap") {
+    stop("No block-level CVAP table exists: citizenship is not collected ",
+         "in the decennial census and the CVAP Special Tabulation stops ",
+         "at block groups. Use type = \"vap\" at block level, or look up ",
+         "the block's parent block group.", call. = FALSE)
+  }
   obj <- switch(paste(level, type, sep = "_"),
                 zcta_cvap         = "geo_zcta_cvap",
                 zcta_vap          = "geo_zcta_vap",
                 tract_cvap        = "geo_tract_cvap",
                 tract_vap         = "geo_tract_vap",
                 block_group_cvap  = "geo_bg_cvap",
-                block_group_vap   = "geo_bg_vap")
+                block_group_vap   = "geo_bg_vap",
+                block_vap         = "geo_block_vap")
   get(obj, envir = asNamespace("openBISG"))
 }
 
@@ -78,7 +94,9 @@ check_geo_smooth <- function(x) {
 ## Population-weighted marginal composition of a geography table --
 ## the shrinkage target used by `smooth_geo_probs()`. Rows with a
 ## missing / non-positive total or missing shares are skipped. Returns
-## NULL when no row qualifies.
+## NULL when no row qualifies. Row-normalizes before weighting, so it
+## is exact for both the proportion tables and the count-valued
+## geo_block_vap (counts / rowsum × total = counts).
 geo_marginal <- function(tbl, groups, totals) {
   if (is.null(totals)) return(NULL)
   w  <- suppressWarnings(as.numeric(totals))
@@ -93,7 +111,8 @@ geo_marginal <- function(tbl, groups, totals) {
 }
 
 ## National marginal for one bundled table, cached per (level, type) so
-## the 240k-row block-group tables are only swept once per session.
+## the 240k-row block-group tables — and the 5.7M-row block table — are
+## only swept once per session.
 geo_national <- function(level, type) {
   key <- paste0("geo_national_", level, "_", type)
   cached <- get0(key, envir = .openBISG_caches, inherits = FALSE,
@@ -137,17 +156,31 @@ normalize_block_group <- function(b) {
   NA_character_
 }
 
+normalize_block <- function(b) {
+  b <- as.character(b)
+  if (is.na(b) || !nzchar(b)) return(NA_character_)
+  ## Strip the "7500000US" Summary File prefix before dropping non-digits.
+  b <- sub("^\\s*\\d{7}US", "", b)
+  b <- gsub("[^0-9]", "", b)
+  ## Block GEOIDs are 15 digits: state(2) + county(3) + tract(6) + block(4).
+  ## The block-group digit is the first block digit, so the parent block
+  ## group is always substr(geoid, 1, 12).
+  if (nchar(b) == 15L) return(b)
+  NA_character_
+}
+
 #' Geography-level race / Hispanic-origin prior
 #'
 #' Look up the share of each race / Hispanic-origin group for the citizen
 #' voting age population (CVAP, 2020-2024 ACS Special Tabulation) or the
-#' voting age population (VAP, 2020 Decennial DHC Table P11) at a ZIP /
-#' ZCTA, Census Tract, or Census Block Group.
+#' voting age population (VAP, 2020 Decennial DHC Table P11 / P.L. 94-171
+#' block counts) at a ZIP / ZCTA, Census Tract, Census Block Group, or
+#' Census Block.
 #'
-#' Exactly one of `zcta`, `tract`, or `block_group` must be supplied. The
-#' returned vector is the geographic prior `P(R | G)` used by
-#' [predict_race()] and [predict_names()] when geography is provided. If
-#' none of the three is supplied, returns the population-level prior
+#' Exactly one of `zcta`, `tract`, `block_group`, or `block` must be
+#' supplied. The returned vector is the geographic prior `P(R | G)` used
+#' by [predict_race()] and [predict_names()] when geography is provided.
+#' If none of the four is supplied, returns the population-level prior
 #' attached to [last_names] (the same prior that drives the Naive-Bayes
 #' name combination).
 #'
@@ -155,7 +188,27 @@ normalize_block_group <- function(b) {
 #' Tract GEOIDs may be supplied either as 11-digit FIPS strings
 #' ("01001020100") or as the Census Summary File prefixed form
 #' ("1400000US01001020100"). Block-group GEOIDs are 12 digits, optionally
-#' with the "1500000US" prefix.
+#' with the "1500000US" prefix. Block GEOIDs are 15 digits, optionally
+#' with the "7500000US" prefix.
+#'
+#' @section Block-level lookups:
+#' The block table ([geo_block_vap]) is built from the 2020 Decennial
+#' P.L. 94-171 Redistricting Data and covers the 5,704,969 blocks with
+#' any voting-age population (50 states, DC, and Puerto Rico). Two
+#' situations reroute a block lookup to the block's parent block group
+#' (always `substr(geoid, 1, 12)`):
+#' \itemize{
+#'   \item `type = "cvap"` — no block-level CVAP table exists
+#'     (citizenship is not collected in the decennial census), so the
+#'     block-group CVAP row is used instead.
+#'   \item The 15-digit GEOID is not among the populated 2020 blocks
+#'     (a zero-VAP block, or an ID that does not exist). When
+#'     `block_fallback = TRUE` (default) the block-group VAP row is
+#'     used; when `FALSE` the lookup returns `NULL`.
+#' }
+#' Both reroutes emit a [message()] (suppressible with
+#' [suppressMessages()]) and mark the result with attributes
+#' `level = "block_group"` and `fallback_from = "block"`.
 #'
 #' @section Zero cells and smoothing:
 #' The bundled tables contain a great many exact zeros at fine
@@ -186,6 +239,9 @@ normalize_block_group <- function(b) {
 #'   Summary File "1400000US..." form. Default `NULL`.
 #' @param block_group 12-digit Block Group FIPS (string), or the
 #'   Summary File "1500000US..." form. Default `NULL`.
+#' @param block 15-digit Census Block FIPS (string), or the Summary
+#'   File "7500000US..." form. Default `NULL`. VAP only — see
+#'   **Block-level lookups**.
 #' @param type `"cvap"` (default) or `"vap"`. Picks which population the
 #'   prior is computed over. CVAP excludes non-citizens; VAP is everyone
 #'   age 18+. CVAP is appropriate for predictions about likely voters
@@ -195,17 +251,25 @@ normalize_block_group <- function(b) {
 #'   looked-up composition toward the national marginal of the same
 #'   table — see **Zero cells and smoothing**. Default `1`. Set to `0`
 #'   to return the published shares unchanged.
+#' @param block_fallback When `TRUE` (default), a `block` GEOID that is
+#'   not among the populated 2020 blocks falls back to its parent block
+#'   group's row (with a message). When `FALSE` such a lookup returns
+#'   `NULL`. Only consulted for `block` lookups.
 #' @return A length-6 named numeric vector of proportions in
 #'   [race_groups()] order, summing to 1. Has the attribute `total`
 #'   (the CVAP or VAP count for that geography), `level` (`"zcta"` /
-#'   `"tract"` / `"block_group"` / `"national"`), `type`
-#'   (`"cvap"` / `"vap"`), and `geo_smooth` (the pseudo-count applied).
-#'   Returns `NULL` if the geography ID isn't in the bundled table.
+#'   `"tract"` / `"block_group"` / `"block"` / `"national"` — the table
+#'   actually used, so a rerouted block lookup reports
+#'   `"block_group"`), `type` (`"cvap"` / `"vap"`), `geo_smooth` (the
+#'   pseudo-count applied), and — only when a block lookup was rerouted
+#'   to its block group — `fallback_from = "block"`. Returns `NULL` if
+#'   the geography ID isn't in the bundled table.
 #' @seealso [predict_race()], [last_names].
 #' @examples
 #' geo_prior(zcta = "00601")              # ZCTA in Puerto Rico
 #' geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 #' geo_prior(zcta = 30307, type = "vap")  # Atlanta-area ZIP, VAP basis
+#' geo_prior(block = geo_block_vap$geoid[1], type = "vap")  # one block
 #'
 #' ## Half of `geo_bg_cvap` estimates zero Asian / NHPI citizens age
 #' ## 18+. Smoothing replaces the fatal exact zero with a small share.
@@ -214,13 +278,16 @@ normalize_block_group <- function(b) {
 #' geo_prior(block_group = bg)[["aapi"]]
 #' @export
 geo_prior <- function(zcta = NULL, tract = NULL, block_group = NULL,
-                      type = c("cvap", "vap"), geo_smooth = 1) {
+                      block = NULL,
+                      type = c("cvap", "vap"), geo_smooth = 1,
+                      block_fallback = TRUE) {
   type <- match.arg(type)
   geo_smooth <- check_geo_smooth(geo_smooth)
-  supplied <- !vapply(list(zcta, tract, block_group), is.null, logical(1))
+  supplied <- !vapply(list(zcta, tract, block_group, block),
+                      is.null, logical(1))
   if (sum(supplied) > 1L) {
-    stop("Provide at most one of `zcta`, `tract`, or `block_group`.",
-         call. = FALSE)
+    stop("Provide at most one of `zcta`, `tract`, `block_group`, or ",
+         "`block`.", call. = FALSE)
   }
   if (!any(supplied)) {
     prior <- attr(table_df("last"), "prior")
@@ -239,18 +306,52 @@ geo_prior <- function(zcta = NULL, tract = NULL, block_group = NULL,
   } else if (!is.null(tract)) {
     level <- "tract"
     key   <- normalize_tract(tract)
-  } else {
+  } else if (!is.null(block_group)) {
     level <- "block_group"
     key   <- normalize_block_group(block_group)
+  } else {
+    level <- "block"
+    key   <- normalize_block(block)
   }
   if (is.na(key)) return(NULL)
 
+  fallback_from <- NULL
+  if (level == "block" && type == "cvap") {
+    ## No block-level CVAP exists; use the parent block group's CVAP row.
+    message("geo_prior(): no block-level CVAP table exists (citizenship ",
+            "is not collected in the decennial census); using the ",
+            "block's parent block group ", substr(key, 1L, 12L),
+            " from `geo_bg_cvap` instead.")
+    fallback_from <- "block"
+    level <- "block_group"
+    key   <- substr(key, 1L, 12L)
+  }
+
   tbl <- geo_table(level, type)
   hit <- tbl[tbl$geoid == key, , drop = FALSE]
-  if (nrow(hit) == 0L) return(NULL)
+  if (nrow(hit) == 0L) {
+    if (level != "block" || !isTRUE(block_fallback)) return(NULL)
+    ## Valid 15-digit GEOID, but not a populated 2020 block: fall back
+    ## to the parent block group's VAP proportions.
+    message("geo_prior(): block ", key, " is not among the populated ",
+            "2020 census blocks; falling back to its block group ",
+            substr(key, 1L, 12L), " for the geography prior ",
+            "(disable with `block_fallback = FALSE`).")
+    fallback_from <- "block"
+    level <- "block_group"
+    key   <- substr(key, 1L, 12L)
+    tbl <- geo_table(level, type)
+    hit <- tbl[tbl$geoid == key, , drop = FALSE]
+    if (nrow(hit) == 0L) return(NULL)
+  }
   out <- unlist(hit[1, race_groups()])
   out <- stats::setNames(as.numeric(out), race_groups())
   if (any(is.na(out)) || sum(out, na.rm = TRUE) == 0) return(NULL)
+  if (level == "block") {
+    ## geo_block_vap stores integer counts; convert to proportions
+    ## (rows sum to `total` exactly, and total > 0 for every shipped row).
+    out <- out / sum(out)
+  }
   total <- as.integer(hit$total[1])
   if (geo_smooth > 0) {
     out <- smooth_geo_probs(out, total, geo_smooth, geo_national(level, type))
@@ -259,6 +360,7 @@ geo_prior <- function(zcta = NULL, tract = NULL, block_group = NULL,
   attr(out, "level")      <- level
   attr(out, "type")       <- type
   attr(out, "geo_smooth") <- geo_smooth
+  if (!is.null(fallback_from)) attr(out, "fallback_from") <- fallback_from
   out
 }
 
