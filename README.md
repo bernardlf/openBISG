@@ -4,8 +4,9 @@ Open-source Bayesian Improved Surname Geocoding (BISG) for R.
 Computes per-name race / Hispanic-origin and sex probabilities from the
 U.S. Census Bureau's 2020 Decennial Census frequently occurring first and
 last names tabulations, optionally folded together with a geographic
-prior at ZIP / ZCTA, Census Tract, or Block Group level (CVAP from the
-2020-2024 ACS Special Tabulation, or VAP from 2020 DHC).
+prior at ZIP / ZCTA, Census Tract, Block Group, or Census Block level
+(CVAP from the 2020-2024 ACS Special Tabulation, or VAP from 2020 DHC
+and, at block level, the 2020 P.L. 94-171 Redistricting Data).
 
 ## Install
 
@@ -24,13 +25,15 @@ install.packages(c("stringi", "shiny"))     # one-time
 install.packages("openBISG", repos = NULL, type = "source")
 ```
 
-The package ships eleven lazy-loaded data objects (~22 MB compressed):
+The package ships twelve lazy-loaded data objects (~42 MB compressed):
 `first_names`, `last_names`, `first_names_sex`,
 `first_names_extra`, `last_names_extra` (the Rosenman, Olivella, and Imai
 (2023) voter-file based additional names, opt-in via
-`include_extra = TRUE`), and the six geographic priors
+`include_extra = TRUE`), and the seven geographic priors
 `geo_zcta_cvap`, `geo_tract_cvap`, `geo_bg_cvap`,
-`geo_zcta_vap`, `geo_tract_vap`, `geo_bg_vap`.
+`geo_zcta_vap`, `geo_tract_vap`, `geo_bg_vap`, and `geo_block_vap`
+(VAP counts for all 5.7M populated 2020 census blocks — at 20 MB, half
+the package's data payload on its own).
 
 ## Quick start
 
@@ -57,8 +60,8 @@ data sources, and accepted ID formats.
 
 `predict_names()` auto-detects which of the recognized columns are
 present in the input (any subset of `first`, `middle`, `last`, `maiden`,
-`zcta`, `tract`, `block_group`; matching is case-insensitive, so
-`First`, `LAST`, `Block_Group` all work) and returns a 7-column data
+`zcta`, `tract`, `block_group`, `block`; matching is case-insensitive,
+so `First`, `LAST`, `Block_Group` all work) and returns a 7-column data
 frame: six race probabilities plus `p_female`
 (with `P(male) = 1 - p_female`).
 
@@ -163,14 +166,17 @@ predict_race(first = "Maria", last = "Smith", maiden = "Garcia")
 ### Geography
 
 ```r
-# Pass at most one of zcta / tract / block_group per call.
+# Pass at most one of zcta / tract / block_group / block per call.
 predict_race(first = "Maria", last = "Garcia", zcta = "30307")
 predict_race(last = "Smith",  tract = "01001020100", geography_type = "vap")
+predict_race(last = "Smith",  block = "010010201001000",
+             geography_type = "vap")   # block level is VAP only
 
 # Look up just the geographic prior P(R | G).
 geo_prior(zcta = "00601")              # ZCTA in Puerto Rico (CVAP)
 geo_prior(tract = "01001020100")       # tract in Autauga County, AL
 geo_prior(block_group = "010010201001", type = "vap")
+geo_prior(block = "010010201001000",   type = "vap")
 
 # Geographic priors are shrunk toward the national marginal by a
 # one-person pseudo-count, so a sampling zero in the ACS estimate
@@ -368,14 +374,14 @@ input, the result collapses to `P(R | G)` directly.
 ### How to supply geography
 
 Three entry points accept the same set of geography arguments. Pass
-**at most one** of `zcta`, `tract`, or `block_group` per call; supplying
-more than one raises an error.
+**at most one** of `zcta`, `tract`, `block_group`, or `block` per call;
+supplying more than one raises an error.
 
 | Function | Geography arguments | Population basis | Zero-cell smoothing |
 |---|---|---|---|
-| `geo_prior()` | `zcta=`, `tract=`, `block_group=` | `type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` |
-| `predict_race()` | `zcta=`, `tract=`, `block_group=`, or `geography_probs=` (length-6 named numeric in `race_groups()` order) | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` (ignored for `geography_probs`) |
-| `predict_names()` | data frame columns named `zcta`, `tract`, or `block_group` (auto-detected; most specific wins if multiple) | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` |
+| `geo_prior()` | `zcta=`, `tract=`, `block_group=`, `block=` | `type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` |
+| `predict_race()` | `zcta=`, `tract=`, `block_group=`, `block=`, or `geography_probs=` (length-6 named numeric in `race_groups()` order) | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` (ignored for `geography_probs`) |
+| `predict_names()` | data frame columns named `zcta`, `tract`, `block_group`, or `block` (auto-detected; most specific wins if multiple) | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` |
 | `predict_demog()` | same as `predict_names()`, plus `geoid` with a custom `geo_dict=` | `geography_type = "cvap"` (default) or `"vap"` | `geo_smooth = 1` (custom `geo_dict` needs a `total` column) |
 
 ### Accepted ID formats
@@ -388,6 +394,11 @@ more than one raises an error.
 - **Block Group** — 12-digit FIPS string `state(2) + county(3) + tract(6) + bg(1)`,
   e.g. `"010010201001"`. The prefixed form `"1500000US010010201001"`
   is also accepted.
+- **Census Block** — 15-digit FIPS string
+  `state(2) + county(3) + tract(6) + block(4)`, e.g. `"010010201001000"`.
+  The prefixed form `"7500000US010010201001000"` is also accepted. The
+  first block digit is the block-group digit, so a block's parent block
+  group is always the first 12 digits.
 
 IDs that don't match any row in the bundled table return `NULL` from
 `geo_prior()`; in `predict_race()` the result falls back to the
@@ -395,13 +406,26 @@ name-only posterior and `$geography$found` is set to `FALSE`. In
 `predict_names()` the affected row likewise falls back to the name-only
 posterior (the 7-column output carries no per-row match indicator).
 
+**Blocks are special-cased in two ways.** The block table covers the
+5,704,969 blocks with a nonzero voting-age population, so a valid
+15-digit GEOID can miss (a zero-VAP block, or one that does not exist);
+by default such lookups fall back to the block's parent block group,
+and each call prints one suppressible `message()` reporting how many
+rows fell back. Pass `block_fallback = FALSE` to disable the fallback —
+affected rows then get no geography component. And because citizenship
+is not collected in the decennial census there is no block-level CVAP
+table: block lookups with the default `geography_type = "cvap"` always
+use the parent block group's CVAP row (also messaged).
+
 ### Bundled datasets, sources, and vintages
 
-The package ships six lazy-loaded geographic-prior tables, one for each
-combination of geography level × population basis. All six have the same
-columns: `geoid`, `total`, and the six race / Hispanic-origin shares
-(`white`, `black`, `aian`, `aapi`, `nh_multi`, `hispanic`) summing to 1
-per row.
+The package ships seven lazy-loaded geographic-prior tables. The ZCTA /
+tract / block-group tables have the same columns: `geoid`, `total`, and
+the six race / Hispanic-origin shares (`white`, `black`, `aian`,
+`aapi`, `nh_multi`, `hispanic`) summing to 1 per row. `geo_block_vap`
+has the same columns but stores integer **counts** summing to `total`
+(counts compress far better at this scale, and all consumers
+row-normalize on the fly — results are identical).
 
 | Object | Level | Basis | Source | Reference period |
 |---|---|---|---|---|
@@ -411,6 +435,14 @@ per row.
 | `geo_zcta_vap` | ZCTA | VAP — everyone 18+ | 2020 Decennial DHC, Table P11 (ZCTA) | April 1, 2020 |
 | `geo_tract_vap` | Census Tract | VAP | 2020 Decennial DHC, Table P11 (tract) | April 1, 2020 |
 | `geo_bg_vap` | Block Group | VAP | 2020 Decennial DHC, Table P11 (block group) | April 1, 2020 |
+| `geo_block_vap` | Census Block (15-digit) | VAP | 2020 Census P.L. 94-171 Redistricting Data, Table P4 (block); populated blocks only, incl. Puerto Rico | April 1, 2020 |
+
+There is no block-level CVAP table (citizenship is not collected in the
+decennial census; the CVAP Special Tabulation stops at block groups).
+Note the DHC-based VAP tables exclude Puerto Rico, while
+`geo_block_vap` includes it. The first block-level lookup in a session
+lazy-loads and sweeps the 5.7M-row table — expect a few seconds and
+roughly 600 MB of memory.
 
 The geography vintage is fixed by the bundled data — to use a different
 ACS or Decennial release, pass your own table via
@@ -560,6 +592,16 @@ Rscript build_data.R     # rebuilds first_names / last_names / etc.
 Rscript build_geo.R      # rebuilds geo_zcta_* / geo_tract_* / geo_bg_*
 ```
 
+`geo_block_vap` is built separately from the 2020 P.L. 94-171 state
+files (about 1.3 GB of downloads the other scripts don't need) —
+see the header of `data-raw/build_geo_block.R` for how to assemble the
+combined block-level input with the `PL94171` package, then:
+
+```bash
+cd openBISG
+Rscript data-raw/build_geo_block.R /path/to/PL94171_BlockLvl.RData
+```
+
 ## References
 
 ### Census source data
@@ -577,8 +619,10 @@ Rscript build_geo.R      # rebuilds geo_zcta_* / geo_tract_* / geo_bg_*
   <https://www2.census.gov/topics/genealogy/2000surnames/surnames.pdf>
 - U.S. Census Bureau (2021). *2020 Census Redistricting Data
   (Public Law 94-171) Summary File* — Table P2 (Hispanic or Latino,
-  and Not Hispanic or Latino by Race). Used for the AAPI / NHPI
-  biracial population counts cited above.
+  and Not Hispanic or Latino by Race), used for the AAPI / NHPI
+  biracial population counts cited above, and Table P4 (the same
+  breakdown for the population 18 years and over), used to build the
+  block-level `geo_block_vap` table.
   <https://api.census.gov/data/2020/dec/pl>
 
 ### Bayesian Improved Surname Geocoding (BISG) and name supplements

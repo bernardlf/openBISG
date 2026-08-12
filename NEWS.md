@@ -1,3 +1,49 @@
+# openBISG 0.7.0
+
+## Block-level geography
+
+The package now ships a seventh geographic prior, **`geo_block_vap`**:
+voting-age population by race / Hispanic origin for every populated 2020
+census block, built from the 2020 P.L. 94-171 Redistricting Data (Table
+P4). It covers 5,704,969 blocks across the 50 states, DC, and — unlike
+the DHC-based VAP tables — Puerto Rico. Every entry point accepts the
+new geography: `geo_prior(block = ...)`, `predict_race(block = ...)`, a
+`block` column in `predict_names()` / `predict_demog()` (taking
+precedence over `block_group` > `tract` > `zcta`), and a Census Block
+field in the Shiny app. Block GEOIDs are 15 digits, optionally with the
+`"7500000US"` Summary File prefix.
+
+Unlike the other geography tables, `geo_block_vap` stores **integer
+counts rather than proportions** — counts compress to roughly 60% of
+the size (the table is 20 MB, by far the largest shipped) and all
+consumers row-normalize on the fly, so results are identical to a
+proportion table. Note the first block-level call in a session loads
+and sweeps the 5.7M-row table (a few seconds, ~600 MB of memory).
+
+Two situations reroute a block lookup to the block's parent block group
+(`substr(geoid, 1, 12)`), each reported via a suppressible `message()`
+that counts the affected rows:
+
+* **Blocks with no voting-age population.** `geo_block_vap` covers
+  populated blocks only, so a valid 15-digit GEOID that misses is a
+  zero-VAP block (or one that does not exist). By default such lookups
+  fall back to the block group's proportions; the new
+  **`block_fallback`** argument (on `geo_prior()`, `predict_race()`,
+  `predict_names()`, and `predict_demog()`) disables the fallback, in
+  which case those rows get no geography component.
+* **`geography_type = "cvap"`.** Citizenship is not collected in the
+  decennial census and the CVAP Special Tabulation stops at block
+  groups, so there is no block-level CVAP table; block lookups under
+  CVAP always use the parent block group's CVAP row.
+
+`predict_race()`'s geography metadata records a reroute as
+`level = "block_group"` plus `fallback_from = "block"`.
+
+Note for positional callers: `block` was inserted after `block_group`
+in the `geo_prior()` / `predict_race()` signatures, and
+`block_fallback` after `geo_smooth` in all four — arguments passed by
+position after those points shift by one.
+
 # openBISG 0.6.0
 
 ## Sampling zeros in the geographic prior no longer annihilate the name evidence
