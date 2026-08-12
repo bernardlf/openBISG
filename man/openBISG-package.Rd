@@ -8,11 +8,12 @@
 \description{
 Lookup tables and a Naive-Bayes / BISG / BIFSG probability calculator
 built from the U.S. Census Bureau's 2020 Decennial Census frequently
-occurring first and last names tabulations and the 2020-2024 ACS
-Citizen Voting Age Population (CVAP) Special Tabulation. Given any
-combination of first name, last name, and geography (ZIP / ZCTA,
-Census Tract, or Block Group), returns the probability that the
-bearer belongs to each of six race / Hispanic-origin groups, plus a
+occurring first and last names tabulations, the 2020-2024 ACS
+Citizen Voting Age Population (CVAP) Special Tabulation, and the
+2020 P.L. 94-171 Redistricting Data. Given any combination of first
+name, last name, and geography (ZIP / ZCTA, Census Tract, Block
+Group, or Census Block), returns the probability that the bearer
+belongs to each of six race / Hispanic-origin groups, plus a
 probability of sex from the first-name-by-sex table.
 }
 \section{Main entry points}{
@@ -36,10 +37,12 @@ CVAP / VAP tables.}
 
 \link{first_names}, \link{last_names}, \link{first_names_sex} (Census 2020),
 \link{first_names_extra}, \link{last_names_extra} (Rosenman, Olivella, and Imai
-2023 voter-file additions), and the six geographic priors:
+2023 voter-file additions), and the seven geographic priors:
 \link{geo_zcta_cvap}, \link{geo_tract_cvap}, \link{geo_bg_cvap} (2020-2024 ACS
 Special Tabulation), \link{geo_zcta_vap}, \link{geo_tract_vap}, \link{geo_bg_vap}
-(2020 Decennial DHC Table P11).
+(2020 Decennial DHC Table P11), and \link{geo_block_vap} (2020 P.L.
+94-171 Redistricting Data, VAP counts for every populated census
+block).
 }
 
 \seealso{

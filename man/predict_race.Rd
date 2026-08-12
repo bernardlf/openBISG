@@ -14,8 +14,10 @@ predict_race(
   zcta = NULL,
   tract = NULL,
   block_group = NULL,
+  block = NULL,
   geography_type = c("cvap", "vap"),
   geo_smooth = 1,
+  block_fallback = TRUE,
   geography_probs = NULL
 )
 }
@@ -42,16 +44,22 @@ proportionally to the Census prior at build time. Default \code{FALSE}.
 Sex prediction is unaffected — the Rosenman dataset has no sex
 information, so the \code{first_names_sex} table is the only source.}
 
-\item{zcta, tract, block_group}{Optional geography identifier. At most
-one may be supplied. When given, the name posterior is folded
+\item{zcta, tract, block_group, block}{Optional geography identifier. At
+most one may be supplied. When given, the name posterior is folded
 together with the geographic prior under conditional independence
 given race (BISG / BIFSG):
 \deqn{P(R | \mathrm{name}, G) \propto P(R | \mathrm{name})\,P(R | G)\,/\,P(R)}.
-See \code{\link[=geo_prior]{geo_prior()}} for accepted formats and the bundled tables.}
+See \code{\link[=geo_prior]{geo_prior()}} for accepted formats and the bundled tables.
+\code{block} takes a 15-digit 2020 Census Block GEOID; block-level data
+are VAP only, and a block that is not among the populated 2020
+blocks falls back to its parent block group (see \code{\link[=geo_prior]{geo_prior()}},
+whose messages this function inherits).}
 
 \item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — picks which
 bundled geography table feeds the prior when \code{zcta} / \code{tract} /
-\code{block_group} is supplied.}
+\code{block_group} / \code{block} is supplied. There is no block-level CVAP
+table, so \code{block} with \code{"cvap"} uses the block's parent block
+group.}
 
 \item{geo_smooth}{Pseudo-count, in people, used to shrink the bundled
 geographic prior toward the national marginal of the same table
@@ -62,6 +70,12 @@ posterior to zero regardless of the name evidence. See
 \code{\link[=geo_prior]{geo_prior()}} for the formula. Set to \code{0} to fold in the published
 shares unchanged. Ignored when \code{geography_probs} is supplied: a
 caller-supplied prior is used exactly as given.}
+
+\item{block_fallback}{Forwarded to \code{\link[=geo_prior]{geo_prior()}}: when \code{TRUE}
+(default), a \code{block} GEOID not among the populated 2020 blocks
+falls back to its parent block group's row; when \code{FALSE} the
+geography lookup is recorded as not found. Only consulted for
+\code{block} lookups.}
 
 \item{geography_probs}{Optional length-6 named numeric vector of
 \code{P(R | G)} (in \code{\link[=race_groups]{race_groups()}} order). Lets callers plug in a
@@ -87,7 +101,9 @@ evidence matched.}
 otherwise a list describing the lookup: \code{level}, \code{type}, \code{key},
 \code{total}, \code{source}, \code{found}, the \code{geo_smooth} pseudo-count that
 was applied, the (smoothed) \code{probs} fed to the fold, and
-\code{combined} — the BISG posterior \code{P(R | name, G)}.}
+\code{combined} — the BISG posterior \code{P(R | name, G)}. When a
+\code{block} lookup was rerouted to its parent block group, \code{level}
+is \code{"block_group"} and \code{fallback_from} is \code{"block"}.}
 \item{sex}{\code{list(probs = ..., tokens, n)} — or \code{NULL} if no
 first-name input was provided.}
 }
