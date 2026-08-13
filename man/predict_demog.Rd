@@ -43,8 +43,7 @@ warning) when \code{name_dict} is supplied.}
 selects the bundled geography table when \code{geo_dict} is not
 supplied. \code{"pop"} (total population of all ages, P.L. 94-171
 Table P2 — the \code{wru} package's basis) covers tract / block group
-/ block only and requires the separately built \verb{geo_*_pop}
-tables — see \code{\link[=geo_prior]{geo_prior()}}.}
+/ block only — see \code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geo_smooth}{Pseudo-count, in people, used to shrink each
 geography's composition toward the population-weighted marginal of

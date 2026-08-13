@@ -10,14 +10,14 @@ package's Census downloads. It is accepted by `geo_prior()`,
 `predict_wru()`, and composes with `geo_smooth`, `block_fallback`,
 and `block_shrink` exactly as the other bases do.
 
-The three tables (`geo_block_pop` — integer counts for the 5,806,512
-blocks with any population; `geo_bg_pop` and `geo_tract_pop` — exact
-block aggregations, proportions + total) are built by the new
-`data-raw/build_geo_pop.R` from the combined P.L. 94-171 block file.
-**They are not bundled with the package sources while the basis is
-under evaluation**: a `"pop"` lookup in an installation without them
-stops with instructions, and `"pop"` has no ZCTA table (census blocks
-do not nest in ZCTAs).
+The three tables ship with the package: `geo_block_pop` (integer
+counts for the 5,806,512 blocks with any population — the pop
+analog of `geo_block_vap`, covering ~100k more blocks), and
+`geo_bg_pop` / `geo_tract_pop` (exact block aggregations,
+proportions + total), all built by the new `data-raw/build_geo_pop.R`
+from the combined P.L. 94-171 block file. They add roughly 30 MB of
+lazy-loaded data. `"pop"` has no ZCTA table (census blocks do not
+nest in ZCTAs).
 
 Validation on the 2026 Georgia voter file (exact ratio-fold emulation
 of the block run) finds `"pop"` and `"vap"` essentially tied overall
@@ -27,7 +27,8 @@ structure of minority populations: pop lowers Black and Hispanic
 false negative rates (~0.6–0.9pp) while raising White FNR and Black
 FPR by similar amounts. VAP remains the recommended default for
 registered-voter applications; `"pop"` exists for bearer populations
-that include minors and for exact comparability with `wru`.
+that include minors and for exact comparability with `wru` —
+accordingly, `predict_wru()` (below) defaults to `"pop"`.
 
 ## `predict_wru()`: wru-style BISG from the bundled tables
 
@@ -51,11 +52,12 @@ geography-only posterior). Input is a data frame with a `last` /
 `surname` column and a `block` / `block_group` / `tract` column;
 output columns `p_whi` ... `p_oth` correspond to wru's `pred.*`.
 
-Documented departures from wru: the default population basis is 2020
-voting-age population rather than wru's all-ages counts — pass
-`geography_type = "pop"` (with the `geo_*_pop` tables built, above)
-to match wru's basis exactly — and surnames are cleaned /
-compound-matched by openBISG's cascade rather than wru's.
+`predict_wru()` uses wru's own total-population basis by default
+(`geography_type = "pop"`; pass `"vap"` for the electorate-focused
+basis the rest of openBISG defaults to). Remaining departures:
+surnames are cleaned / compound-matched by openBISG's cascade rather
+than wru's string handling, and no age / sex / party conditioning is
+applied (wru's basic BISG mode).
 
 # openBISG 0.7.5
 

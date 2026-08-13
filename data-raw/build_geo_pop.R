@@ -4,8 +4,7 @@
 ## shipped VAP tables.
 ##
 ## Outputs (to the directory named by the second argument — default
-## `vfdata-raw`, the gitignored evaluation area, while the pop basis is
-## under evaluation; pass `data` to build them as bundled package data):
+## `data`, where they ship as bundled package data as of 0.8.0):
 ##   geo_block_pop.rda  one row per 2020 block with nonzero total
 ##                      population; columns geoid + total + the six
 ##                      race / Hispanic groups as integer COUNTS
@@ -39,7 +38,7 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 src <- if (length(args) >= 1L) args[[1]] else "PL94171_BlockLvl.RData"
-out_dir <- if (length(args) >= 2L) args[[2]] else "vfdata-raw"
+out_dir <- if (length(args) >= 2L) args[[2]] else "data"
 if (!file.exists(src)) {
   stop("Input not found: ", src,
        " — pass the path to PL94171_BlockLvl.RData (see header).")

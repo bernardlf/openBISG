@@ -147,7 +147,8 @@ ui <- fluidPage(
                         placeholder = "15 digits, e.g. 010010201001000")),
           div(radioButtons("geography_type", "Population basis",
                            choices = c("CVAP (citizens 18+)" = "cvap",
-                                       "VAP (everyone 18+)"  = "vap"),
+                                       "VAP (everyone 18+)"  = "vap",
+                                       "Total population (all ages)" = "pop"),
                            selected = "cvap", inline = TRUE))
       ),
       div(class = "row", style = "margin-top: 10px;",
@@ -322,6 +323,8 @@ server <- function(input, output, session) {
     if (!is.null(pred$geography)) {
       geo <- pred$geography
       type_label <- if (identical(geo$type, "vap")) "VAP (everyone 18+)"
+                    else if (identical(geo$type, "pop"))
+                      "Total population (all ages)"
                     else "CVAP (citizens 18+)"
       level_label <- switch(geo$level %||% "national",
                             zcta        = "ZIP / ZCTA",

@@ -26,9 +26,8 @@ tables. Default \code{FALSE}.}
 
 \item{geography_type}{\code{"cvap"} (default), \code{"vap"}, or \code{"pop"} —
 selects the bundled geography table used when a geography column
-is detected. \code{"pop"} (total population of all ages, wru's basis)
-requires the separately built \verb{geo_*_pop} tables — see
-\code{\link[=geo_prior]{geo_prior()}}.}
+is detected. \code{"pop"} is the total population of all ages, wru's
+basis — see \code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geo_smooth}{Forwarded to \code{\link[=predict_race]{predict_race()}} — the pseudo-count
 used to shrink the geographic prior toward the national marginal

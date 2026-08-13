@@ -41,7 +41,7 @@ test_that("predict_wru reproduces the wru fold by hand at the block level", {
   exp <- exp / sum(exp)
   got <- predict_wru(data.frame(last = "Garcia", block = key,
                                 stringsAsFactors = FALSE),
-                     progress = FALSE)
+                     geography_type = "vap", progress = FALSE)
   expect_named(got, paste0("p_", c("whi", "bla", "his", "asi", "oth")))
   expect_equal(as.numeric(got), as.numeric(exp), tolerance = 1e-10)
 })
@@ -52,7 +52,7 @@ test_that("an unmatched surname carries the geography-only posterior", {
   g5 <- wru5(as.list(d[d$geoid == key, ]))
   got <- predict_wru(data.frame(last = "Zzqxvqy", block = key,
                                 stringsAsFactors = FALSE),
-                     progress = FALSE)
+                     geography_type = "vap", progress = FALSE)
   expect_equal(as.numeric(got), as.numeric(g5), tolerance = 1e-10)
 })
 
@@ -63,7 +63,7 @@ test_that("an unmatched block carries the surname-only posterior, with a message
   expect_message(
     got <- predict_wru(data.frame(last = "Garcia", block = bad,
                                   stringsAsFactors = FALSE),
-                       progress = FALSE),
+                       geography_type = "vap", progress = FALSE),
     "did not match the bundled block table"
   )
   expect_equal(as.numeric(got), as.numeric(n5), tolerance = 1e-10)
@@ -89,7 +89,7 @@ test_that("the `surname` alias and the tract level work", {
   exp <- exp / sum(exp)
   got <- predict_wru(data.frame(surname = "Nguyen", tract = key,
                                 stringsAsFactors = FALSE),
-                     progress = FALSE)
+                     geography_type = "vap", progress = FALSE)
   expect_equal(as.numeric(got), as.numeric(exp), tolerance = 1e-10)
 })
 
@@ -130,8 +130,21 @@ test_that("geo_smooth departs from raw-count wru behavior only when asked", {
   key <- d$geoid[ok]
   df <- data.frame(last = "Nguyen", block_group = key,
                    stringsAsFactors = FALSE)
-  raw <- predict_wru(df, progress = FALSE)
+  raw <- predict_wru(df, geography_type = "vap", progress = FALSE)
   expect_equal(raw$p_asi, 0)   # wru behavior: zero cell wins
-  sm <- predict_wru(df, geo_smooth = 1, progress = FALSE)
+  sm <- predict_wru(df, geography_type = "vap", geo_smooth = 1,
+                    progress = FALSE)
   expect_gt(sm$p_asi, 0)
+})
+
+test_that("the default basis is pop — wru's own", {
+  key <- first_block()
+  df <- data.frame(last = "Garcia", block = key, stringsAsFactors = FALSE)
+  expect_equal(predict_wru(df, progress = FALSE),
+               predict_wru(df, geography_type = "pop", progress = FALSE),
+               tolerance = 1e-12)
+  ## pop and vap priors genuinely differ for this block
+  expect_false(isTRUE(all.equal(
+    predict_wru(df, progress = FALSE),
+    predict_wru(df, geography_type = "vap", progress = FALSE))))
 })
