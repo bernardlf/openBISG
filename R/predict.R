@@ -142,11 +142,14 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'   are VAP only, and a block that is not among the populated 2020
 #'   blocks falls back to its parent block group (see [geo_prior()],
 #'   whose messages this function inherits).
-#' @param geography_type `"cvap"` (default) or `"vap"` — picks which
-#'   bundled geography table feeds the prior when `zcta` / `tract` /
-#'   `block_group` / `block` is supplied. There is no block-level CVAP
-#'   table, so `block` with `"cvap"` uses the block's parent block
-#'   group.
+#' @param geography_type `"cvap"` (default), `"vap"`, or `"pop"` —
+#'   picks which bundled geography table feeds the prior when `zcta` /
+#'   `tract` / `block_group` / `block` is supplied. There is no
+#'   block-level CVAP table, so `block` with `"cvap"` uses the block's
+#'   parent block group. `"pop"` is the total population of all ages
+#'   (P.L. 94-171 Table P2, the basis used by the `wru` package);
+#'   it covers tract / block group / block only and requires the
+#'   separately built `geo_*_pop` tables — see [geo_prior()].
 #' @param block_fallback Forwarded to [geo_prior()]: when `TRUE`
 #'   (default), a `block` GEOID not among the populated 2020 blocks
 #'   falls back to its parent block group's row; when `FALSE` the
@@ -216,7 +219,7 @@ predict_race <- function(first = NULL, middle = NULL,
                          include_extra = FALSE,
                          zcta = NULL, tract = NULL, block_group = NULL,
                          block = NULL,
-                         geography_type = c("cvap", "vap"),
+                         geography_type = c("cvap", "vap", "pop"),
                          geo_smooth = 1,
                          block_fallback = TRUE,
                          block_shrink = 10,
@@ -446,8 +449,11 @@ predict_sex <- function(first = NULL) {
 #'   names absent from Census 2020 are looked up against the
 #'   Rosenman, Olivella, and Imai (2023) NotInCensus2020 voter-file
 #'   tables. Default `FALSE`.
-#' @param geography_type `"cvap"` (default) or `"vap"` — selects the
-#'   bundled geography table used when a geography column is detected.
+#' @param geography_type `"cvap"` (default), `"vap"`, or `"pop"` —
+#'   selects the bundled geography table used when a geography column
+#'   is detected. `"pop"` (total population of all ages, wru's basis)
+#'   requires the separately built `geo_*_pop` tables — see
+#'   [geo_prior()].
 #' @param geo_smooth Forwarded to [predict_race()] — the pseudo-count
 #'   used to shrink the geographic prior toward the national marginal
 #'   before folding, which keeps sampling zeros in `P(R | G)` from
@@ -497,7 +503,7 @@ predict_sex <- function(first = NULL) {
 #' @export
 predict_names <- function(data,
                           include_extra = FALSE,
-                          geography_type = c("cvap", "vap"),
+                          geography_type = c("cvap", "vap", "pop"),
                           geo_smooth = 1,
                           block_fallback = TRUE,
                           block_shrink = 10,
