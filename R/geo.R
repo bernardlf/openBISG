@@ -91,6 +91,16 @@ check_geo_smooth <- function(x) {
   as.numeric(x)
 }
 
+## Validate a `block_shrink` argument. NULL means "off".
+check_block_shrink <- function(x) {
+  if (is.null(x)) return(0)
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x) || x < 0) {
+    stop("`block_shrink` must be a single non-negative, finite number ",
+         "(0 disables the block-group blend).", call. = FALSE)
+  }
+  as.numeric(x)
+}
+
 ## Population-weighted marginal composition of a geography table --
 ## the shrinkage target used by `smooth_geo_probs()`. Rows with a
 ## missing / non-positive total or missing shares are skipped. Returns
@@ -210,6 +220,32 @@ normalize_block <- function(b) {
 #' [suppressMessages()]) and mark the result with attributes
 #' `level = "block_group"` and `fallback_from = "block"`.
 #'
+#' @section Block-count shrinkage toward the block group:
+#' A census block is small enough that its complete-count VAP row is
+#' often degenerate for locally rare groups: a block of 40 adults with
+#' zero recorded Hispanic residents pins the Hispanic share at (nearly)
+#' zero even when the surrounding block group is 10% Hispanic and a
+#' Hispanic family has since moved in. Validation against self-reported
+#' race on the 2026 Georgia voter file shows this zero-own-count
+#' situation accounts for essentially all of the block prior's
+#' disadvantage versus the block-group prior among Hispanic and Asian
+#' voters, while blocks with five or more own-group adults *beat* the
+#' block group.
+#'
+#' `block_shrink` therefore blends the block's integer counts with
+#' `block_shrink` pseudo-people drawn from the parent block group's
+#' composition before normalizing — a Dirichlet prior with the block
+#' group as the base measure:
+#' \deqn{p_{\mathrm{blend}} = \frac{\mathrm{counts} +
+#'   \lambda \, p_{\mathrm{bg}}}{\mathrm{total} + \lambda}.}
+#' The default `lambda = 10` leaves well-populated blocks essentially
+#' unchanged while pulling degenerate ones toward their block group;
+#' `geo_smooth` is then applied on top with the blended scale
+#' `total + lambda`. Set `block_shrink = 0` for the 0.7.0 behavior
+#' (raw block counts). Only consulted for `block` lookups with
+#' `type = "vap"`; the blend is skipped (silently) when the parent
+#' block group has no usable row.
+#'
 #' @section Zero cells and smoothing:
 #' The bundled tables contain a great many exact zeros at fine
 #' geographies — in `geo_bg_cvap`, 49% of block groups report zero
@@ -255,6 +291,11 @@ normalize_block <- function(b) {
 #'   not among the populated 2020 blocks falls back to its parent block
 #'   group's row (with a message). When `FALSE` such a lookup returns
 #'   `NULL`. Only consulted for `block` lookups.
+#' @param block_shrink Pseudo-count, in people, of the parent block
+#'   group's composition blended into a block's VAP counts before
+#'   normalizing — see **Block-count shrinkage toward the block
+#'   group**. Default `10`. Set to `0` for the raw block counts
+#'   (the 0.7.0 behavior). Only consulted for `block` lookups.
 #' @return A length-6 named numeric vector of proportions in
 #'   [race_groups()] order, summing to 1. Has the attribute `total`
 #'   (the CVAP or VAP count for that geography), `level` (`"zcta"` /
@@ -262,8 +303,11 @@ normalize_block <- function(b) {
 #'   actually used, so a rerouted block lookup reports
 #'   `"block_group"`), `type` (`"cvap"` / `"vap"`), `geo_smooth` (the
 #'   pseudo-count applied), and — only when a block lookup was rerouted
-#'   to its block group — `fallback_from = "block"`. Returns `NULL` if
-#'   the geography ID isn't in the bundled table.
+#'   to its block group — `fallback_from = "block"`. Block-level
+#'   results also carry `block_shrink` — the pseudo-count actually
+#'   blended in (`0` when disabled or when the parent block group had
+#'   no usable row). Returns `NULL` if the geography ID isn't in the
+#'   bundled table.
 #' @seealso [predict_race()], [last_names].
 #' @examples
 #' geo_prior(zcta = "00601")              # ZCTA in Puerto Rico
@@ -280,9 +324,10 @@ normalize_block <- function(b) {
 geo_prior <- function(zcta = NULL, tract = NULL, block_group = NULL,
                       block = NULL,
                       type = c("cvap", "vap"), geo_smooth = 1,
-                      block_fallback = TRUE) {
+                      block_fallback = TRUE, block_shrink = 10) {
   type <- match.arg(type)
   geo_smooth <- check_geo_smooth(geo_smooth)
+  block_shrink <- check_block_shrink(block_shrink)
   supplied <- !vapply(list(zcta, tract, block_group, block),
                       is.null, logical(1))
   if (sum(supplied) > 1L) {
@@ -347,19 +392,39 @@ geo_prior <- function(zcta = NULL, tract = NULL, block_group = NULL,
   out <- unlist(hit[1, race_groups()])
   out <- stats::setNames(as.numeric(out), race_groups())
   if (any(is.na(out)) || sum(out, na.rm = TRUE) == 0) return(NULL)
+  total <- as.integer(hit$total[1])
+  n_eff <- as.numeric(total)
+  shrink_applied <- 0
   if (level == "block") {
-    ## geo_block_vap stores integer counts; convert to proportions
-    ## (rows sum to `total` exactly, and total > 0 for every shipped row).
+    ## geo_block_vap stores integer counts (rows sum to `total` exactly,
+    ## and total > 0 for every shipped row). Blend `block_shrink`
+    ## pseudo-people drawn from the parent block group's composition
+    ## into the counts before normalizing -- see **Block-count
+    ## shrinkage toward the block group**.
+    if (block_shrink > 0) {
+      bg_tbl <- geo_table("block_group", type)
+      bg_hit <- bg_tbl[bg_tbl$geoid == substr(key, 1L, 12L), ,
+                       drop = FALSE]
+      if (nrow(bg_hit) == 1L) {
+        bg_p <- suppressWarnings(
+          as.numeric(unlist(bg_hit[1, race_groups()])))
+        if (!any(is.na(bg_p)) && sum(bg_p) > 0) {
+          out <- out + block_shrink * (bg_p / sum(bg_p))
+          n_eff <- n_eff + block_shrink
+          shrink_applied <- block_shrink
+        }
+      }
+    }
     out <- out / sum(out)
   }
-  total <- as.integer(hit$total[1])
   if (geo_smooth > 0) {
-    out <- smooth_geo_probs(out, total, geo_smooth, geo_national(level, type))
+    out <- smooth_geo_probs(out, n_eff, geo_smooth, geo_national(level, type))
   }
   attr(out, "total")      <- total
   attr(out, "level")      <- level
   attr(out, "type")       <- type
   attr(out, "geo_smooth") <- geo_smooth
+  if (level == "block") attr(out, "block_shrink") <- shrink_applied
   if (!is.null(fallback_from)) attr(out, "fallback_from") <- fallback_from
   out
 }

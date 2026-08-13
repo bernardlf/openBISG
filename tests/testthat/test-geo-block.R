@@ -48,25 +48,110 @@ test_that("geo_prior accepts plain and Summary-File-prefixed block GEOIDs", {
 
 test_that("block counts are normalized to the published shares at geo_smooth = 0", {
   key <- pop_block()
-  raw <- geo_prior(block = key, type = "vap", geo_smooth = 0)
+  raw <- geo_prior(block = key, type = "vap", geo_smooth = 0,
+                   block_shrink = 0)
   d <- openBISG::geo_block_vap
   row <- d[d$geoid == key, ]
   expect_equal(as.numeric(raw),
                as.numeric(unlist(row[race_groups()])) / row$total,
                tolerance = 1e-12)
   expect_equal(attr(raw, "total"), row$total)
+  expect_equal(attr(raw, "block_shrink"), 0)
 })
 
 test_that("block-level smoothing follows the pseudo-count formula", {
   key <- pop_block()
-  raw <- geo_prior(block = key, type = "vap", geo_smooth = 0)
+  raw <- geo_prior(block = key, type = "vap", geo_smooth = 0,
+                   block_shrink = 0)
   nat <- openBISG:::geo_national("block", "vap")
   tot <- attr(raw, "total")
   for (alpha in c(0.5, 1, 25)) {
-    sm  <- geo_prior(block = key, type = "vap", geo_smooth = alpha)
+    sm  <- geo_prior(block = key, type = "vap", geo_smooth = alpha,
+                     block_shrink = 0)
     exp <- (tot * (raw / sum(raw)) + alpha * nat) / (tot + alpha)
     expect_equal(as.numeric(sm), as.numeric(exp), tolerance = 1e-12)
   }
+})
+
+test_that("block_shrink blends the parent block group into the counts", {
+  key <- pop_block()
+  raw <- geo_prior(block = key, type = "vap", geo_smooth = 0,
+                   block_shrink = 0)
+  bgp <- geo_prior(block_group = parent_bg(), type = "vap", geo_smooth = 0)
+  tot  <- attr(raw, "total")
+  cnts <- as.numeric(raw) * tot
+  for (lam in c(5, 10, 25)) {
+    sh  <- geo_prior(block = key, type = "vap", geo_smooth = 0,
+                     block_shrink = lam)
+    exp <- (cnts + lam * as.numeric(bgp)) / (tot + lam)
+    expect_equal(as.numeric(sh), exp, tolerance = 1e-12)
+    expect_equal(attr(sh, "block_shrink"), lam)
+    ## the published block VAP count is reported unchanged
+    expect_equal(attr(sh, "total"), tot)
+  }
+  ## the default is block_shrink = 10
+  expect_equal(
+    as.numeric(geo_prior(block = key, type = "vap")),
+    as.numeric(geo_prior(block = key, type = "vap", block_shrink = 10)),
+    tolerance = 1e-12
+  )
+  expect_equal(attr(geo_prior(block = key, type = "vap"), "block_shrink"),
+               10)
+})
+
+test_that("geo_smooth applies on top of the blend with scale total + lambda", {
+  key <- pop_block()
+  lam <- 10
+  blend <- geo_prior(block = key, type = "vap", geo_smooth = 0,
+                     block_shrink = lam)
+  nat <- openBISG:::geo_national("block", "vap")
+  tot <- attr(blend, "total")
+  for (alpha in c(1, 5)) {
+    sm  <- geo_prior(block = key, type = "vap", geo_smooth = alpha,
+                     block_shrink = lam)
+    exp <- ((tot + lam) * as.numeric(blend) + alpha * nat) /
+      (tot + lam + alpha)
+    expect_equal(as.numeric(sm), as.numeric(exp), tolerance = 1e-12)
+  }
+})
+
+test_that("block_shrink leaves the zero-VAP fallback and validation intact", {
+  bad <- gone_block()
+  p0  <- suppressMessages(geo_prior(block = bad, type = "vap",
+                                    block_shrink = 0))
+  p10 <- suppressMessages(geo_prior(block = bad, type = "vap",
+                                    block_shrink = 10))
+  expect_equal(p0, p10)   # fallback rows carry the bg row either way
+  expect_error(geo_prior(block = pop_block(), type = "vap",
+                         block_shrink = -1), "block_shrink")
+  expect_error(geo_prior(block = pop_block(), type = "vap",
+                         block_shrink = "x"), "block_shrink")
+  ## NULL means off
+  expect_equal(
+    geo_prior(block = pop_block(), type = "vap", block_shrink = NULL),
+    geo_prior(block = pop_block(), type = "vap", block_shrink = 0)
+  )
+})
+
+test_that("block_shrink agrees across all three entry points", {
+  key <- pop_block()
+  df <- data.frame(last = c("Smith", "Garcia"), block = key,
+                   stringsAsFactors = FALSE)
+  d10 <- predict_demog(df, geography_type = "vap", progress = FALSE)
+  d0  <- predict_demog(df, geography_type = "vap", progress = FALSE,
+                       block_shrink = 0)
+  expect_false(isTRUE(all.equal(d10, d0)))
+  pn10 <- predict_names(df, geography_type = "vap", progress = FALSE)
+  expect_equal(d10, pn10, tolerance = 1e-12)
+  pr <- predict_race(last = "Smith", block = key, geography_type = "vap",
+                     block_shrink = 25)
+  expect_equal(pr$geography$block_shrink, 25)
+  pd <- predict_demog(data.frame(last = "Smith", block = key,
+                                 stringsAsFactors = FALSE),
+                      geography_type = "vap", progress = FALSE,
+                      block_shrink = 25)
+  expect_equal(as.numeric(pd[1, paste0("p_", race_groups())]),
+               as.numeric(pr$geography$combined), tolerance = 1e-12)
 })
 
 test_that("an unpopulated block falls back to its block group, with a message", {
