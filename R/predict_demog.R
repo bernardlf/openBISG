@@ -252,9 +252,16 @@ check_name_dict <- function(df, what) {
 #'     component (name-only posterior), and the message reports how
 #'     many rows were skipped.
 #' }
-#' `block_fallback` is ignored when `geo_dict` is supplied (a `block`
-#' column is then matched against `geo_dict$geoid` as-is, like any
-#' other geography column).
+#' Populated-block rows additionally blend `block_shrink` pseudo-people
+#' drawn from the parent block group's composition into the block's
+#' counts before normalizing (default `10`; `0` restores the raw
+#' counts) — see [geo_prior()], **Block-count shrinkage toward the
+#' block group**, for the formula and the validation behind the
+#' default.
+#'
+#' `block_fallback` and `block_shrink` are ignored when `geo_dict` is
+#' supplied (a `block` column is then matched against `geo_dict$geoid`
+#' as-is, like any other geography column).
 #'
 #' @section User-supplied name dictionaries:
 #' `name_dict` may be a single data frame (used for given names and
@@ -326,6 +333,13 @@ check_name_dict <- function(df, what) {
 #'   and the block-group fallback**. When `FALSE`, those rows get no
 #'   geography component. Only consulted for a `block` column with the
 #'   bundled tables.
+#' @param block_shrink Pseudo-count, in people, of the parent block
+#'   group's composition blended into each populated block's VAP
+#'   counts before normalizing — a Dirichlet prior with the block
+#'   group as the base measure; see [geo_prior()], **Block-count
+#'   shrinkage toward the block group**. Default `10`; set to `0` for
+#'   the raw 0.7.0 block counts. Only consulted for a `block` column
+#'   with the bundled tables and `geography_type = "vap"`.
 #' @param include_sex Bundled name tables only: when `TRUE` (default),
 #'   append a `p_female` column computed from the first-name-by-sex
 #'   table (`first` field only, compound-first cascade), exactly as
@@ -390,6 +404,7 @@ predict_demog <- function(data,
                           geography_type = c("cvap", "vap"),
                           geo_smooth = 1,
                           block_fallback = TRUE,
+                          block_shrink = 10,
                           include_sex = TRUE,
                           progress = TRUE,
                           n_cores = 1L) {
@@ -398,6 +413,7 @@ predict_demog <- function(data,
   }
   geography_type <- match.arg(geography_type)
   geo_smooth <- check_geo_smooth(geo_smooth)
+  block_shrink <- check_block_shrink(block_shrink)
   n_cores <- resolve_n_cores(n_cores, nrow(data))
 
   ## ---- Column detection (case-insensitive, as in predict_names) ----
@@ -737,6 +753,31 @@ predict_demog <- function(data,
                                       ncol = n_groups, byrow = TRUE)
           }
           ufell_back[rows_fb] <- TRUE
+        }
+      }
+    }
+
+    ## ---- Dirichlet blend of block counts with the parent block group ----
+    ## Populated-block rows only (bundled VAP path): add `block_shrink`
+    ## pseudo-people drawn from the parent block group's composition to
+    ## the integer counts, and raise the smoothing scale to match --
+    ## arithmetic identical to geo_prior()'s block_shrink.
+    if (block_native && block_shrink > 0 && any(okr)) {
+      bg_sh <- geo_table("block_group", geography_type)
+      rows_ok <- which(okr)
+      sgi <- match(substr(keys[rows_ok], 1L, 12L), bg_sh$geoid)
+      sgh <- !is.na(sgi)
+      if (any(sgh)) {
+        bg_shm <- as.matrix(bg_sh[, groups, drop = FALSE])
+        storage.mode(bg_shm) <- "double"
+        bp  <- bg_shm[sgi[sgh], , drop = FALSE]
+        brs <- rowSums(bp)
+        usable <- is.finite(brs) & brs > 0
+        if (any(usable)) {
+          rows_sh <- rows_ok[sgh][usable]
+          upm[rows_sh, ] <- upm[rows_sh, , drop = FALSE] +
+            block_shrink * (bp[usable, , drop = FALSE] / brs[usable])
+          utot[rows_sh] <- utot[rows_sh] + block_shrink
         }
       }
     }
