@@ -18,6 +18,7 @@ predict_race(
   geography_type = c("cvap", "vap"),
   geo_smooth = 1,
   block_fallback = TRUE,
+  block_shrink = 10,
   geography_probs = NULL
 )
 }
@@ -76,6 +77,11 @@ caller-supplied prior is used exactly as given.}
 falls back to its parent block group's row; when \code{FALSE} the
 geography lookup is recorded as not found. Only consulted for
 \code{block} lookups.}
+
+\item{block_shrink}{Forwarded to \code{\link[=geo_prior]{geo_prior()}}: pseudo-count, in
+people, of the parent block group's composition blended into a
+block's VAP counts before normalizing (default \code{10}; \code{0} restores
+the raw 0.7.0 block counts). Only consulted for \code{block} lookups.}
 
 \item{geography_probs}{Optional length-6 named numeric vector of
 \code{P(R | G)} (in \code{\link[=race_groups]{race_groups()}} order). Lets callers plug in a

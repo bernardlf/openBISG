@@ -13,6 +13,7 @@ predict_demog(
   geography_type = c("cvap", "vap"),
   geo_smooth = 1,
   block_fallback = TRUE,
+  block_shrink = 10,
   include_sex = TRUE,
   progress = TRUE,
   n_cores = 1L
@@ -56,6 +57,14 @@ parent block group's proportions — see \strong{Block-level geography
 and the block-group fallback}. When \code{FALSE}, those rows get no
 geography component. Only consulted for a \code{block} column with the
 bundled tables.}
+
+\item{block_shrink}{Pseudo-count, in people, of the parent block
+group's composition blended into each populated block's VAP
+counts before normalizing — a Dirichlet prior with the block
+group as the base measure; see \code{\link[=geo_prior]{geo_prior()}}, \strong{Block-count
+shrinkage toward the block group}. Default \code{10}; set to \code{0} for
+the raw 0.7.0 block counts. Only consulted for a \code{block} column
+with the bundled tables and \code{geography_type = "vap"}.}
 
 \item{include_sex}{Bundled name tables only: when \code{TRUE} (default),
 append a \code{p_female} column computed from the first-name-by-sex
@@ -148,9 +157,16 @@ fell back; with \code{block_fallback = FALSE} they get no geography
 component (name-only posterior), and the message reports how
 many rows were skipped.
 }
-\code{block_fallback} is ignored when \code{geo_dict} is supplied (a \code{block}
-column is then matched against \code{geo_dict$geoid} as-is, like any
-other geography column).
+Populated-block rows additionally blend \code{block_shrink} pseudo-people
+drawn from the parent block group's composition into the block's
+counts before normalizing (default \code{10}; \code{0} restores the raw
+counts) — see \code{\link[=geo_prior]{geo_prior()}}, \strong{Block-count shrinkage toward the
+block group}, for the formula and the validation behind the
+default.
+
+\code{block_fallback} and \code{block_shrink} are ignored when \code{geo_dict} is
+supplied (a \code{block} column is then matched against \code{geo_dict$geoid}
+as-is, like any other geography column).
 }
 
 \section{User-supplied name dictionaries}{
