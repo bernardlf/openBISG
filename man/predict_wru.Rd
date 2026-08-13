@@ -6,7 +6,7 @@
 \usage{
 predict_wru(
   data,
-  geography_type = c("vap", "cvap"),
+  geography_type = c("vap", "cvap", "pop"),
   include_extra = FALSE,
   geo_smooth = 0,
   progress = TRUE,
@@ -21,9 +21,11 @@ one geography column named \code{block}, \code{block_group}, or \code{tract}
 File prefixes; they are normalized as in \code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geography_type}{\code{"vap"} (default) — 2020 Decennial voting-age
-population, the only basis available at the block level — or
-\code{"cvap"} for citizen voting-age population at the block-group /
-tract levels.}
+population — \code{"cvap"} (citizen voting-age population;
+block-group / tract only), or \code{"pop"} — total population of all
+ages, \strong{wru's exact default basis} (P.L. 94-171 Table P2), which
+requires the separately built \verb{geo_*_pop} tables (see
+\code{\link[=geo_prior]{geo_prior()}}) and makes the replication apples-to-apples.}
 
 \item{include_extra}{When \code{TRUE}, surnames absent from the Census
 2020 list fall back to the Rosenman, Olivella, and Imai (2023)
@@ -77,11 +79,12 @@ geography-only posterior, wru's \code{impute.missing} analog.
 }
 
 Known departures, all documented consequences of using the bundled
-data: the population basis is 2020 voting-age population (or CVAP
-for \code{block_group} / \code{tract}) rather than wru's default all-ages
-population; surnames are cleaned and compound-matched by openBISG's
-cascade rather than wru's; and no age / sex / party conditioning is
-applied (wru's basic BISG mode).
+data: the default population basis is 2020 voting-age population
+rather than wru's all-ages counts — pass \code{geography_type = "pop"}
+(with the \verb{geo_*_pop} tables built) to match wru's basis exactly;
+surnames are cleaned and compound-matched by openBISG's cascade
+rather than wru's; and no age / sex / party conditioning is applied
+(wru's basic BISG mode).
 }
 \examples{
 df <- data.frame(last  = c("Garcia", "Smith"),
