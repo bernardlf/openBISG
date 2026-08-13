@@ -152,6 +152,10 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'   falls back to its parent block group's row; when `FALSE` the
 #'   geography lookup is recorded as not found. Only consulted for
 #'   `block` lookups.
+#' @param block_shrink Forwarded to [geo_prior()]: pseudo-count, in
+#'   people, of the parent block group's composition blended into a
+#'   block's VAP counts before normalizing (default `10`; `0` restores
+#'   the raw 0.7.0 block counts). Only consulted for `block` lookups.
 #' @param geo_smooth Pseudo-count, in people, used to shrink the bundled
 #'   geographic prior toward the national marginal of the same table
 #'   before it is folded in (default `1`). This keeps an exact zero in
@@ -215,9 +219,11 @@ predict_race <- function(first = NULL, middle = NULL,
                          geography_type = c("cvap", "vap"),
                          geo_smooth = 1,
                          block_fallback = TRUE,
+                         block_shrink = 10,
                          geography_probs = NULL) {
   geography_type <- match.arg(geography_type)
   geo_smooth <- check_geo_smooth(geo_smooth)
+  block_shrink <- check_block_shrink(block_shrink)
   first_tokens  <- tokenize_names(first)
   middle_tokens <- tokenize_names(middle)
   last_tokens   <- tokenize_names(last)
@@ -318,7 +324,8 @@ predict_race <- function(first = NULL, middle = NULL,
     p <- geo_prior(zcta = zcta, tract = tract, block_group = block_group,
                    block = block,
                    type = geography_type, geo_smooth = geo_smooth,
-                   block_fallback = block_fallback)
+                   block_fallback = block_fallback,
+                   block_shrink = block_shrink)
     geo_meta$key <- if (!is.null(zcta)) as.character(zcta)
                     else if (!is.null(tract)) as.character(tract)
                     else if (!is.null(block_group)) as.character(block_group)
@@ -330,6 +337,7 @@ predict_race <- function(first = NULL, middle = NULL,
       geo_meta$total  <- attr(p, "total")
       geo_meta$found  <- TRUE
       geo_meta$fallback_from <- attr(p, "fallback_from")
+      geo_meta$block_shrink  <- attr(p, "block_shrink")
     } else {
       geo_meta$level  <- if (!is.null(zcta)) "zcta"
                          else if (!is.null(tract)) "tract"
@@ -444,6 +452,10 @@ predict_sex <- function(first = NULL) {
 #'   used to shrink the geographic prior toward the national marginal
 #'   before folding, which keeps sampling zeros in `P(R | G)` from
 #'   zeroing out a group the names point to. Default `1`; `0` disables.
+#' @param block_shrink Forwarded to [predict_race()]: pseudo-count, in
+#'   people, of the parent block group's composition blended into each
+#'   block's VAP counts before normalizing (default `10`; `0` restores
+#'   the raw 0.7.0 block counts). Only consulted for a `block` column.
 #' @param block_fallback Forwarded to [predict_race()]: when `TRUE`
 #'   (default), rows whose `block` GEOID is not among the populated
 #'   2020 blocks fall back to their parent block group's proportions;
@@ -488,6 +500,7 @@ predict_names <- function(data,
                           geography_type = c("cvap", "vap"),
                           geo_smooth = 1,
                           block_fallback = TRUE,
+                          block_shrink = 10,
                           progress = TRUE,
                           n_cores = 1L) {
   if (!is.data.frame(data)) {
@@ -495,6 +508,7 @@ predict_names <- function(data,
   }
   geography_type <- match.arg(geography_type)
   geo_smooth <- check_geo_smooth(geo_smooth)
+  block_shrink <- check_block_shrink(block_shrink)
 
   recognized_names <- c("first", "middle", "last", "maiden")
   recognized_geo   <- c("block", "block_group", "tract", "zcta")  # most specific first
@@ -561,7 +575,8 @@ predict_names <- function(data,
       block          = cell(kc, i),
       geography_type = geography_type,
       geo_smooth     = geo_smooth,
-      block_fallback = block_fallback
+      block_fallback = block_fallback,
+      block_shrink   = block_shrink
     )
     pred <- tryCatch(
       if (block_active) suppressMessages(run()) else run(),
