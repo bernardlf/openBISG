@@ -10,6 +10,7 @@ predict_names(
   geography_type = c("cvap", "vap"),
   geo_smooth = 1,
   block_fallback = TRUE,
+  block_shrink = 10,
   progress = TRUE,
   n_cores = 1L
 )
@@ -37,6 +38,11 @@ zeroing out a group the names point to. Default \code{1}; \code{0} disables.}
 when \code{FALSE} those rows get no geography component. A summary
 message reports how many rows were affected either way. Only
 consulted when a \code{block} column is used.}
+
+\item{block_shrink}{Forwarded to \code{\link[=predict_race]{predict_race()}}: pseudo-count, in
+people, of the parent block group's composition blended into each
+block's VAP counts before normalizing (default \code{10}; \code{0} restores
+the raw 0.7.0 block counts). Only consulted for a \code{block} column.}
 
 \item{progress}{If \code{TRUE} (default), prints a one-line text progress
 bar to \code{stderr} showing percent complete, elapsed time, and an

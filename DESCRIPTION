@@ -1,7 +1,7 @@
 Package: openBISG
 Title: Open Bayesian Improved Surname Geocoding for Race, Hispanic-Origin
     and Sex Probabilities from 2020 U.S. Census Names
-Version: 0.7.0
+Version: 0.7.5
 Authors@R:
     person("openBISG", "contributors", role = c("aut", "cre"),
            email = "noreply@example.com")
@@ -34,4 +34,4 @@ Config/testthat/edition: 3
 URL: https://github.com/bernardlf/openBISG
 BugReports: https://github.com/bernardlf/openBISG/issues
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2

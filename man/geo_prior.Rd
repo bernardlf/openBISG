@@ -11,7 +11,8 @@ geo_prior(
   block = NULL,
   type = c("cvap", "vap"),
   geo_smooth = 1,
-  block_fallback = TRUE
+  block_fallback = TRUE,
+  block_shrink = 10
 )
 }
 \arguments{
@@ -42,6 +43,12 @@ to return the published shares unchanged.}
 not among the populated 2020 blocks falls back to its parent block
 group's row (with a message). When \code{FALSE} such a lookup returns
 \code{NULL}. Only consulted for \code{block} lookups.}
+
+\item{block_shrink}{Pseudo-count, in people, of the parent block
+group's composition blended into a block's VAP counts before
+normalizing — see \strong{Block-count shrinkage toward the block
+group}. Default \code{10}. Set to \code{0} for the raw block counts
+(the 0.7.0 behavior). Only consulted for \code{block} lookups.}
 }
 \value{
 A length-6 named numeric vector of proportions in
@@ -51,8 +58,11 @@ A length-6 named numeric vector of proportions in
 actually used, so a rerouted block lookup reports
 \code{"block_group"}), \code{type} (\code{"cvap"} / \code{"vap"}), \code{geo_smooth} (the
 pseudo-count applied), and — only when a block lookup was rerouted
-to its block group — \code{fallback_from = "block"}. Returns \code{NULL} if
-the geography ID isn't in the bundled table.
+to its block group — \code{fallback_from = "block"}. Block-level
+results also carry \code{block_shrink} — the pseudo-count actually
+blended in (\code{0} when disabled or when the parent block group had
+no usable row). Returns \code{NULL} if the geography ID isn't in the
+bundled table.
 }
 \description{
 Look up the share of each race / Hispanic-origin group for the citizen
@@ -95,6 +105,34 @@ used; when \code{FALSE} the lookup returns \code{NULL}.
 Both reroutes emit a \code{\link[=message]{message()}} (suppressible with
 \code{\link[=suppressMessages]{suppressMessages()}}) and mark the result with attributes
 \code{level = "block_group"} and \code{fallback_from = "block"}.
+}
+
+\section{Block-count shrinkage toward the block group}{
+
+A census block is small enough that its complete-count VAP row is
+often degenerate for locally rare groups: a block of 40 adults with
+zero recorded Hispanic residents pins the Hispanic share at (nearly)
+zero even when the surrounding block group is 10\% Hispanic and a
+Hispanic family has since moved in. Validation against self-reported
+race on the 2026 Georgia voter file shows this zero-own-count
+situation accounts for essentially all of the block prior's
+disadvantage versus the block-group prior among Hispanic and Asian
+voters, while blocks with five or more own-group adults \emph{beat} the
+block group.
+
+\code{block_shrink} therefore blends the block's integer counts with
+\code{block_shrink} pseudo-people drawn from the parent block group's
+composition before normalizing — a Dirichlet prior with the block
+group as the base measure:
+\deqn{p_{\mathrm{blend}} = \frac{\mathrm{counts} +
+  \lambda \, p_{\mathrm{bg}}}{\mathrm{total} + \lambda}.}
+The default \code{lambda = 10} leaves well-populated blocks essentially
+unchanged while pulling degenerate ones toward their block group;
+\code{geo_smooth} is then applied on top with the blended scale
+\code{total + lambda}. Set \code{block_shrink = 0} for the 0.7.0 behavior
+(raw block counts). Only consulted for \code{block} lookups with
+\code{type = "vap"}; the blend is skipped (silently) when the parent
+block group has no usable row.
 }
 
 \section{Zero cells and smoothing}{
