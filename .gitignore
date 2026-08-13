@@ -1,2 +1,5 @@
 .DS_Store
 /vfdata-raw
+/data/geo_block_pop.rda
+/data/geo_bg_pop.rda
+/data/geo_tract_pop.rda

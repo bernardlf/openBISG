@@ -112,11 +112,12 @@ wru_geo_dict <- function(level, type) {
 #' }
 #'
 #' Known departures, all documented consequences of using the bundled
-#' data: the population basis is 2020 voting-age population (or CVAP
-#' for `block_group` / `tract`) rather than wru's default all-ages
-#' population; surnames are cleaned and compound-matched by openBISG's
-#' cascade rather than wru's; and no age / sex / party conditioning is
-#' applied (wru's basic BISG mode).
+#' data: the default population basis is 2020 voting-age population
+#' rather than wru's all-ages counts — pass `geography_type = "pop"`
+#' (with the `geo_*_pop` tables built) to match wru's basis exactly;
+#' surnames are cleaned and compound-matched by openBISG's cascade
+#' rather than wru's; and no age / sex / party conditioning is applied
+#' (wru's basic BISG mode).
 #'
 #' @param data A data.frame with a surname column named `last` or
 #'   `surname` (case-insensitive; `last` wins if both are present) and
@@ -124,9 +125,11 @@ wru_geo_dict <- function(level, type) {
 #'   (most specific wins). Geography IDs may carry the Census Summary
 #'   File prefixes; they are normalized as in [geo_prior()].
 #' @param geography_type `"vap"` (default) — 2020 Decennial voting-age
-#'   population, the only basis available at the block level — or
-#'   `"cvap"` for citizen voting-age population at the block-group /
-#'   tract levels.
+#'   population — `"cvap"` (citizen voting-age population;
+#'   block-group / tract only), or `"pop"` — total population of all
+#'   ages, **wru's exact default basis** (P.L. 94-171 Table P2), which
+#'   requires the separately built `geo_*_pop` tables (see
+#'   [geo_prior()]) and makes the replication apples-to-apples.
 #' @param include_extra When `TRUE`, surnames absent from the Census
 #'   2020 list fall back to the Rosenman, Olivella, and Imai (2023)
 #'   voter-file table (collapsed to the five categories), as in
@@ -151,7 +154,7 @@ wru_geo_dict <- function(level, type) {
 #' predict_wru(df, progress = FALSE)
 #' @export
 predict_wru <- function(data,
-                        geography_type = c("vap", "cvap"),
+                        geography_type = c("vap", "cvap", "pop"),
                         include_extra = FALSE,
                         geo_smooth = 0,
                         progress = TRUE,

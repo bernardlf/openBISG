@@ -7,7 +7,7 @@
 predict_names(
   data,
   include_extra = FALSE,
-  geography_type = c("cvap", "vap"),
+  geography_type = c("cvap", "vap", "pop"),
   geo_smooth = 1,
   block_fallback = TRUE,
   block_shrink = 10,
@@ -24,8 +24,11 @@ names absent from Census 2020 are looked up against the
 Rosenman, Olivella, and Imai (2023) NotInCensus2020 voter-file
 tables. Default \code{FALSE}.}
 
-\item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — selects the
-bundled geography table used when a geography column is detected.}
+\item{geography_type}{\code{"cvap"} (default), \code{"vap"}, or \code{"pop"} —
+selects the bundled geography table used when a geography column
+is detected. \code{"pop"} (total population of all ages, wru's basis)
+requires the separately built \verb{geo_*_pop} tables — see
+\code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geo_smooth}{Forwarded to \code{\link[=predict_race]{predict_race()}} — the pseudo-count
 used to shrink the geographic prior toward the national marginal
