@@ -1,3 +1,33 @@
+# openBISG 0.7.6
+
+## `predict_wru()`: wru-style BISG from the bundled tables
+
+New exported function replicating the estimation of the `wru`
+package's standard BISG (Imai and Khanna 2016) — surname times Census
+geography, in wru's five racial categories — without a Census API
+download: the geography component comes from the bundled tables at the
+Census Block, Block Group, or Tract level.
+
+wru computes `P(R|G,S) ∝ P(G|R) P(R|S)` with `P(G|R)` from Census
+counts downloaded per state; since `P(G|R) = P(R|G) P(G) / P(R)`, that
+is the openBISG fold with the state's composition as the marginal
+`P(R)`. `predict_wru()` runs that fold state by state: the six
+openBISG groups are collapsed to wru's five **before** the fold
+(`whi` = white, `bla` = black, `his` = hispanic, `asi` = aapi,
+`oth` = aian + nh_multi), raw counts are folded (`geo_smooth = 0`
+default — as in wru, a zero Census cell zeroes that group), there is
+no block-group fallback and no `block_shrink` (rows whose geography
+misses carry the surname-only posterior; unmatched surnames carry the
+geography-only posterior). Input is a data frame with a `last` /
+`surname` column and a `block` / `block_group` / `tract` column;
+output columns `p_whi` ... `p_oth` correspond to wru's `pred.*`.
+
+Documented departures from wru, all consequences of the bundled data:
+the population basis is 2020 voting-age population (or CVAP at
+block-group / tract level) rather than wru's default all-ages counts,
+and surnames are cleaned/compound-matched by openBISG's cascade
+rather than wru's.
+
 # openBISG 0.7.5
 
 ## Block counts are shrunk toward the parent block group (`block_shrink`)
