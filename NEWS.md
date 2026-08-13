@@ -1,3 +1,55 @@
+# openBISG 0.7.5
+
+## Block counts are shrunk toward the parent block group (`block_shrink`)
+
+A census block is small enough that its complete-count VAP row is often
+degenerate for locally rare groups: a block of 40 adults with zero
+recorded Hispanic residents pins the Hispanic geography share at
+(nearly) zero even when the surrounding block group is 10% Hispanic.
+Validation against self-reported race on the 2026 Georgia voter file
+(7.3M records) shows these zero-own-count blocks account for
+essentially all of the block prior's disadvantage versus the
+block-group prior — Hispanic voters in such blocks were misclassified
+at 44.9% vs 30.1% under the block-group prior, Asian voters at 58.1%
+vs 44.3% — while blocks with five or more own-group adults *beat* the
+block group for every group.
+
+Block-level lookups therefore now blend the block's integer counts
+with **`block_shrink`** pseudo-people drawn from the parent block
+group's composition before normalizing — a Dirichlet prior with the
+block group as the base measure:
+
+    p_blend = (counts + block_shrink * p_bg) / (total + block_shrink)
+
+`geo_smooth` is applied on top with the blended scale
+`total + block_shrink`. The new argument (on `geo_prior()`,
+`predict_race()`, `predict_names()`, and `predict_demog()`) defaults
+to **`10`**, which leaves well-populated blocks essentially unchanged
+while pulling degenerate ones toward their block group. In the Georgia
+emulation the default lowers the overall five-category error from
+12.59% to 12.44% and the zero-own-count-block false negative rates by
+6–26 percentage points (Hispanic 44.9% → 38.6%, Asian 58.1% → 51.2%,
+White 52.1% → 37.2%, Black 76.3% → 54.5%), at a cost of +0.09pp on the
+White false negative rate; the optimum is flat across
+`block_shrink` values of roughly 5–20.
+
+**This changes default block-level results.** Pass `block_shrink = 0`
+to reproduce 0.7.0 output exactly. The blend applies only to `block`
+lookups against the bundled VAP table (populated blocks); the
+zero-VAP `block_fallback` reroute — the limit case of the blend — and
+the CVAP block-group reroute are unchanged, as is a user-supplied
+`geo_dict`. Block-level `geo_prior()` results carry a new
+`block_shrink` attribute with the pseudo-count actually blended in
+(`0` when disabled, or when the parent block group has no usable
+row), and `predict_race()$geography` gains the matching
+`block_shrink` field.
+
+Note for positional callers: `block_shrink` was inserted after
+`block_fallback` in `geo_prior()`, `predict_names()`, and
+`predict_demog()`, and between `block_fallback` and `geography_probs`
+in `predict_race()` — arguments passed by position after those points
+shift by one.
+
 # openBISG 0.7.0
 
 ## Block-level geography
