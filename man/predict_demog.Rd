@@ -10,7 +10,7 @@ predict_demog(
   geo_dict = NULL,
   prior = NULL,
   include_extra = FALSE,
-  geography_type = c("cvap", "vap"),
+  geography_type = c("cvap", "vap", "pop"),
   geo_smooth = 1,
   block_fallback = TRUE,
   block_shrink = 10,
@@ -39,8 +39,11 @@ Rosenman, Olivella, and Imai (2023) voter-file tables for names
 absent from Census 2020, as in \code{\link[=predict_names]{predict_names()}}. Ignored (with a
 warning) when \code{name_dict} is supplied.}
 
-\item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — selects the
-bundled geography table when \code{geo_dict} is not supplied.}
+\item{geography_type}{\code{"cvap"} (default), \code{"vap"}, or \code{"pop"} —
+selects the bundled geography table when \code{geo_dict} is not
+supplied. \code{"pop"} (total population of all ages, P.L. 94-171
+Table P2 — the \code{wru} package's basis) covers tract / block group
+/ block only — see \code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geo_smooth}{Pseudo-count, in people, used to shrink each
 geography's composition toward the population-weighted marginal of

@@ -15,7 +15,7 @@ predict_race(
   tract = NULL,
   block_group = NULL,
   block = NULL,
-  geography_type = c("cvap", "vap"),
+  geography_type = c("cvap", "vap", "pop"),
   geo_smooth = 1,
   block_fallback = TRUE,
   block_shrink = 10,
@@ -56,11 +56,13 @@ are VAP only, and a block that is not among the populated 2020
 blocks falls back to its parent block group (see \code{\link[=geo_prior]{geo_prior()}},
 whose messages this function inherits).}
 
-\item{geography_type}{\code{"cvap"} (default) or \code{"vap"} — picks which
-bundled geography table feeds the prior when \code{zcta} / \code{tract} /
-\code{block_group} / \code{block} is supplied. There is no block-level CVAP
-table, so \code{block} with \code{"cvap"} uses the block's parent block
-group.}
+\item{geography_type}{\code{"cvap"} (default), \code{"vap"}, or \code{"pop"} —
+picks which bundled geography table feeds the prior when \code{zcta} /
+\code{tract} / \code{block_group} / \code{block} is supplied. There is no
+block-level CVAP table, so \code{block} with \code{"cvap"} uses the block's
+parent block group. \code{"pop"} is the total population of all ages
+(P.L. 94-171 Table P2, the basis used by the \code{wru} package);
+it covers tract / block group / block only — see \code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geo_smooth}{Pseudo-count, in people, used to shrink the bundled
 geographic prior toward the national marginal of the same table

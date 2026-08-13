@@ -1,15 +1,15 @@
 ## Geography-aware priors for race / Hispanic-origin prediction.
 ##
-## The package ships seven lazy-loaded data frames built from the
+## The package ships ten lazy-loaded data frames built from the
 ## 2020-2024 ACS Citizen Voting Age Population (CVAP) Special Tabulation,
 ## the 2020 Decennial Demographic and Housing Characteristics File
 ## (DHC) Table P11 (VAP), and the 2020 Decennial P.L. 94-171
-## Redistricting Data (block-level VAP):
+## Redistricting Data (block-level VAP and total population):
 ##
 ##   geo_zcta_cvap   geo_zcta_vap
-##   geo_tract_cvap  geo_tract_vap
-##   geo_bg_cvap     geo_bg_vap
-##                   geo_block_vap
+##   geo_tract_cvap  geo_tract_vap   geo_tract_pop
+##   geo_bg_cvap     geo_bg_vap      geo_bg_pop
+##                   geo_block_vap   geo_block_pop
 ##
 ## The ZCTA / tract / block-group tables have columns geoid, total,
 ## white, black, aian, aapi, nh_multi, hispanic — proportions per row
@@ -20,11 +20,11 @@
 ## geo_block_cvap: citizenship is not collected in the decennial census
 ## and the CVAP Special Tabulation stops at block groups.
 ##
-## See data-raw/build_geo.R and data-raw/build_geo_block.R for
-## derivation.
+## See data-raw/build_geo.R, data-raw/build_geo_block.R, and
+## data-raw/build_geo_pop.R for derivation.
 
 geo_levels <- function() c("zcta", "tract", "block_group", "block")
-geo_types  <- function() c("cvap", "vap")
+geo_types  <- function() c("cvap", "vap", "pop")
 
 geo_table <- function(level, type) {
   level <- match.arg(level, geo_levels())
@@ -35,14 +35,24 @@ geo_table <- function(level, type) {
          "at block groups. Use type = \"vap\" at block level, or look up ",
          "the block's parent block group.", call. = FALSE)
   }
+  if (level == "zcta" && type == "pop") {
+    stop("No ZCTA-level total-population table is built: the P.L. ",
+         "94-171 pipeline (data-raw/build_geo_pop.R) aggregates blocks, ",
+         "which do not nest in ZCTAs. Use type = \"cvap\" / \"vap\" at ",
+         "ZCTA level, or a tract / block-group / block geography.",
+         call. = FALSE)
+  }
   obj <- switch(paste(level, type, sep = "_"),
                 zcta_cvap         = "geo_zcta_cvap",
                 zcta_vap          = "geo_zcta_vap",
                 tract_cvap        = "geo_tract_cvap",
                 tract_vap         = "geo_tract_vap",
+                tract_pop         = "geo_tract_pop",
                 block_group_cvap  = "geo_bg_cvap",
                 block_group_vap   = "geo_bg_vap",
-                block_vap         = "geo_block_vap")
+                block_group_pop   = "geo_bg_pop",
+                block_vap         = "geo_block_vap",
+                block_pop         = "geo_block_pop")
   get(obj, envir = asNamespace("openBISG"))
 }
 
@@ -278,11 +288,17 @@ normalize_block <- function(b) {
 #' @param block 15-digit Census Block FIPS (string), or the Summary
 #'   File "7500000US..." form. Default `NULL`. VAP only — see
 #'   **Block-level lookups**.
-#' @param type `"cvap"` (default) or `"vap"`. Picks which population the
-#'   prior is computed over. CVAP excludes non-citizens; VAP is everyone
-#'   age 18+. CVAP is appropriate for predictions about likely voters
-#'   (e.g. matching against a voter file). VAP is appropriate when the
-#'   bearer's citizenship status is unknown.
+#' @param type `"cvap"` (default), `"vap"`, or `"pop"`. Picks which
+#'   population the prior is computed over. CVAP excludes non-citizens;
+#'   VAP is everyone age 18+; `"pop"` is the total population of all
+#'   ages (P.L. 94-171 Table P2 — the basis used by the `wru` package's
+#'   Census downloads). CVAP is appropriate for predictions about
+#'   likely voters (e.g. matching against a voter file); VAP when the
+#'   bearer's citizenship status is unknown; `"pop"` when the bearer
+#'   may be a minor, or for comparability with `wru`. The `"pop"`
+#'   tables ([geo_block_pop], [geo_bg_pop], [geo_tract_pop]) cover
+#'   tract / block-group / block only; there is no ZCTA table (census
+#'   blocks do not nest in ZCTAs).
 #' @param geo_smooth Pseudo-count, in people, used to shrink the
 #'   looked-up composition toward the national marginal of the same
 #'   table — see **Zero cells and smoothing**. Default `1`. Set to `0`
@@ -323,7 +339,7 @@ normalize_block <- function(b) {
 #' @export
 geo_prior <- function(zcta = NULL, tract = NULL, block_group = NULL,
                       block = NULL,
-                      type = c("cvap", "vap"), geo_smooth = 1,
+                      type = c("cvap", "vap", "pop"), geo_smooth = 1,
                       block_fallback = TRUE, block_shrink = 10) {
   type <- match.arg(type)
   geo_smooth <- check_geo_smooth(geo_smooth)

@@ -317,8 +317,11 @@ check_name_dict <- function(df, what) {
 #'   Rosenman, Olivella, and Imai (2023) voter-file tables for names
 #'   absent from Census 2020, as in [predict_names()]. Ignored (with a
 #'   warning) when `name_dict` is supplied.
-#' @param geography_type `"cvap"` (default) or `"vap"` — selects the
-#'   bundled geography table when `geo_dict` is not supplied.
+#' @param geography_type `"cvap"` (default), `"vap"`, or `"pop"` —
+#'   selects the bundled geography table when `geo_dict` is not
+#'   supplied. `"pop"` (total population of all ages, P.L. 94-171
+#'   Table P2 — the `wru` package's basis) covers tract / block group
+#'   / block only — see [geo_prior()].
 #' @param geo_smooth Pseudo-count, in people, used to shrink each
 #'   geography's composition toward the population-weighted marginal of
 #'   the whole geography table before the fold — see [geo_prior()] for
@@ -401,7 +404,7 @@ predict_demog <- function(data,
                           geo_dict = NULL,
                           prior = NULL,
                           include_extra = FALSE,
-                          geography_type = c("cvap", "vap"),
+                          geography_type = c("cvap", "vap", "pop"),
                           geo_smooth = 1,
                           block_fallback = TRUE,
                           block_shrink = 10,

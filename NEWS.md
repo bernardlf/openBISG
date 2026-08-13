@@ -1,3 +1,64 @@
+# openBISG 0.8.0
+
+## Total-population geography: `geography_type = "pop"`
+
+The geography type gains a third population basis alongside CVAP and
+VAP: **`"pop"`**, the total population of all ages from the 2020 P.L.
+94-171 Redistricting Data (Table P2) — the basis used by the `wru`
+package's Census downloads. It is accepted by `geo_prior()`,
+`predict_race()`, `predict_names()`, `predict_demog()`, and
+`predict_wru()`, and composes with `geo_smooth`, `block_fallback`,
+and `block_shrink` exactly as the other bases do.
+
+The three tables ship with the package: `geo_block_pop` (integer
+counts for the 5,806,512 blocks with any population — the pop
+analog of `geo_block_vap`, covering ~100k more blocks), and
+`geo_bg_pop` / `geo_tract_pop` (exact block aggregations,
+proportions + total), all built by the new `data-raw/build_geo_pop.R`
+from the combined P.L. 94-171 block file. They add roughly 30 MB of
+lazy-loaded data. `"pop"` has no ZCTA table (census blocks do not
+nest in ZCTAs).
+
+Validation on the 2026 Georgia voter file (exact ratio-fold emulation
+of the block run) finds `"pop"` and `"vap"` essentially tied overall
+(error 12.58% vs 12.59% raw; 12.46% vs 12.44% with the default
+`block_shrink`), with a composition tilt from the younger age
+structure of minority populations: pop lowers Black and Hispanic
+false negative rates (~0.6–0.9pp) while raising White FNR and Black
+FPR by similar amounts. VAP remains the recommended default for
+registered-voter applications; `"pop"` exists for bearer populations
+that include minors and for exact comparability with `wru` —
+accordingly, `predict_wru()` (below) defaults to `"pop"`.
+
+## `predict_wru()`: wru-style BISG from the bundled tables
+
+New exported function replicating the estimation of the `wru`
+package's standard BISG (Imai and Khanna 2016) — surname times Census
+geography, in wru's five racial categories — without a Census API
+download: the geography component comes from the bundled tables at the
+Census Block, Block Group, or Tract level.
+
+wru computes `P(R|G,S) ∝ P(G|R) P(R|S)` with `P(G|R)` from Census
+counts downloaded per state; since `P(G|R) = P(R|G) P(G) / P(R)`, that
+is the openBISG fold with the state's composition as the marginal
+`P(R)`. `predict_wru()` runs that fold state by state: the six
+openBISG groups are collapsed to wru's five **before** the fold
+(`whi` = white, `bla` = black, `his` = hispanic, `asi` = aapi,
+`oth` = aian + nh_multi), raw counts are folded (`geo_smooth = 0`
+default — as in wru, a zero Census cell zeroes that group), there is
+no block-group fallback and no `block_shrink` (rows whose geography
+misses carry the surname-only posterior; unmatched surnames carry the
+geography-only posterior). Input is a data frame with a `last` /
+`surname` column and a `block` / `block_group` / `tract` column;
+output columns `p_whi` ... `p_oth` correspond to wru's `pred.*`.
+
+`predict_wru()` uses wru's own total-population basis by default
+(`geography_type = "pop"`; pass `"vap"` for the electorate-focused
+basis the rest of openBISG defaults to). Remaining departures:
+surnames are cleaned / compound-matched by openBISG's cascade rather
+than wru's string handling, and no age / sex / party conditioning is
+applied (wru's basic BISG mode).
+
 # openBISG 0.7.5
 
 ## Block counts are shrunk toward the parent block group (`block_shrink`)
