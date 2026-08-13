@@ -62,8 +62,7 @@ picks which bundled geography table feeds the prior when \code{zcta} /
 block-level CVAP table, so \code{block} with \code{"cvap"} uses the block's
 parent block group. \code{"pop"} is the total population of all ages
 (P.L. 94-171 Table P2, the basis used by the \code{wru} package);
-it covers tract / block group / block only and requires the
-separately built \verb{geo_*_pop} tables — see \code{\link[=geo_prior]{geo_prior()}}.}
+it covers tract / block group / block only — see \code{\link[=geo_prior]{geo_prior()}}.}
 
 \item{geo_smooth}{Pseudo-count, in people, used to shrink the bundled
 geographic prior toward the national marginal of the same table

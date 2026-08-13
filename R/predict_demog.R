@@ -321,8 +321,7 @@ check_name_dict <- function(df, what) {
 #'   selects the bundled geography table when `geo_dict` is not
 #'   supplied. `"pop"` (total population of all ages, P.L. 94-171
 #'   Table P2 — the `wru` package's basis) covers tract / block group
-#'   / block only and requires the separately built `geo_*_pop`
-#'   tables — see [geo_prior()].
+#'   / block only — see [geo_prior()].
 #' @param geo_smooth Pseudo-count, in people, used to shrink each
 #'   geography's composition toward the population-weighted marginal of
 #'   the whole geography table before the fold — see [geo_prior()] for

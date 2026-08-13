@@ -248,3 +248,51 @@
 #'   <https://www.census.gov/programs-surveys/decennial-census/about/rdo/summary-files.html>.
 #' @seealso [geo_prior()], [predict_demog()], [geo_zcta_vap].
 "geo_block_vap"
+
+#' Race / Hispanic-origin total-population priors (all ages) by Census
+#' Block / Block Group / Tract
+#'
+#' Bundled geographic priors over the **total population of all ages**,
+#' built from the 2020 Census P.L. 94-171 Redistricting Data (Table P2,
+#' "Hispanic or Latino, and Not Hispanic or Latino by Race") — the same
+#' population basis as the `wru` package's Census downloads. Selected
+#' with `type = "pop"` / `geography_type = "pop"`; [predict_wru()] uses
+#' them by default.
+#'
+#' `geo_block_pop` follows [geo_block_vap]'s conventions: **integer
+#' counts, not proportions**, one row per block with nonzero total
+#' population (5,806,512 blocks — about 100k more than have nonzero
+#' VAP). `geo_bg_pop` and `geo_tract_pop` are **exact aggregations of
+#' the block counts** (P.L. blocks nest perfectly in block groups and
+#' tracts) stored as proportions + total, the shape of the other
+#' bundled block-group / tract tables. There is no ZCTA table: census
+#' blocks do not nest in ZCTAs. The six-group mapping matches
+#' [geo_block_vap] exactly and partitions the total on every row.
+#'
+#' Validation against self-reported race on a statewide voter file
+#' found the pop and VAP bases essentially tied overall, with pop
+#' tilting errors toward White false negatives and away from Black /
+#' Hispanic false negatives (minority populations skew younger, so
+#' all-ages counts raise their prior shares). Prefer `"vap"` / `"cvap"`
+#' for registered-voter work; prefer `"pop"` when the bearer population
+#' includes minors, or for exact comparability with `wru`.
+#'
+#' @format `geo_block_pop`: a data frame with 5,806,512 rows — columns
+#'   `geoid` (15-digit block FIPS), `total` (total population count,
+#'   integer, always positive), and integer counts
+#'   `white`,`black`,`aian`,`aapi`,`nh_multi`,`hispanic` summing to
+#'   `total`. `geo_bg_pop` (242,335 rows, 12-digit `geoid`) and
+#'   `geo_tract_pop` (85,395 rows, 11-digit `geoid`): `geoid`, `total`,
+#'   and the six groups as proportions summing to 1 (all `NA_real_`
+#'   when `total` = 0).
+#' @source U.S. Census Bureau, 2020 Census P.L. 94-171 Redistricting
+#'   Data Summary Files.
+#'   <https://www.census.gov/programs-surveys/decennial-census/about/rdo/summary-files.html>.
+#' @seealso [geo_prior()], [predict_wru()], [geo_block_vap].
+"geo_block_pop"
+
+#' @rdname geo_block_pop
+"geo_bg_pop"
+
+#' @rdname geo_block_pop
+"geo_tract_pop"

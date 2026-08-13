@@ -148,8 +148,7 @@ lookup_surname_tokens <- function(tokens, tables, include_extra = FALSE) {
 #'   block-level CVAP table, so `block` with `"cvap"` uses the block's
 #'   parent block group. `"pop"` is the total population of all ages
 #'   (P.L. 94-171 Table P2, the basis used by the `wru` package);
-#'   it covers tract / block group / block only and requires the
-#'   separately built `geo_*_pop` tables — see [geo_prior()].
+#'   it covers tract / block group / block only — see [geo_prior()].
 #' @param block_fallback Forwarded to [geo_prior()]: when `TRUE`
 #'   (default), a `block` GEOID not among the populated 2020 blocks
 #'   falls back to its parent block group's row; when `FALSE` the
@@ -451,9 +450,8 @@ predict_sex <- function(first = NULL) {
 #'   tables. Default `FALSE`.
 #' @param geography_type `"cvap"` (default), `"vap"`, or `"pop"` —
 #'   selects the bundled geography table used when a geography column
-#'   is detected. `"pop"` (total population of all ages, wru's basis)
-#'   requires the separately built `geo_*_pop` tables — see
-#'   [geo_prior()].
+#'   is detected. `"pop"` is the total population of all ages, wru's
+#'   basis — see [geo_prior()].
 #' @param geo_smooth Forwarded to [predict_race()] — the pseudo-count
 #'   used to shrink the geographic prior toward the national marginal
 #'   before folding, which keeps sampling zeros in `P(R | G)` from

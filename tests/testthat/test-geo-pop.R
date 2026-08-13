@@ -1,26 +1,15 @@
 ## geography_type = "pop": total-population (all ages, P.L. 94-171
-## Table P2) priors at the tract / block-group / block levels. The
-## geo_*_pop tables are built by data-raw/build_geo_pop.R and are not
-## bundled with the package sources while under evaluation, so every
-## test here skips when they are absent.
+## Table P2) priors at the tract / block-group / block levels, bundled
+## as of 0.8.0 and built by data-raw/build_geo_pop.R.
 
 six <- c("white", "black", "aian", "aapi", "nh_multi", "hispanic")
 
-pop_tables_present <- function() {
-  !is.null(get0("geo_block_pop", envir = asNamespace("openBISG"),
-                ifnotfound = NULL))
-}
-
-test_that("zcta + pop and absent-table errors are informative", {
+test_that("zcta + pop errors are informative", {
   expect_error(openBISG:::geo_table("zcta", "pop"),
                "No ZCTA-level total-population table")
-  ## The absent-table branch can only fire when the tables are missing.
-  skip_if(pop_tables_present(), "pop tables installed; absent branch untestable")
-  expect_error(openBISG:::geo_table("block", "pop"), "not bundled")
 })
 
 test_that("block-level pop lookups normalize the published counts", {
-  skip_if_not(pop_tables_present(), "geo_*_pop tables not built")
   d <- get("geo_block_pop", envir = asNamespace("openBISG"))
   key <- d$geoid[1]
   raw <- geo_prior(block = key, type = "pop", geo_smooth = 0,
@@ -34,7 +23,6 @@ test_that("block-level pop lookups normalize the published counts", {
 })
 
 test_that("bg and tract pop lookups match the aggregated tables", {
-  skip_if_not(pop_tables_present(), "geo_*_pop tables not built")
   bg <- get("geo_bg_pop", envir = asNamespace("openBISG"))
   ok <- which(bg$total > 0)[1]
   p <- geo_prior(block_group = bg$geoid[ok], type = "pop", geo_smooth = 0)
@@ -48,7 +36,6 @@ test_that("bg and tract pop lookups match the aggregated tables", {
 })
 
 test_that("pop block counts are consistent with the parent aggregates", {
-  skip_if_not(pop_tables_present(), "geo_*_pop tables not built")
   d <- get("geo_block_pop", envir = asNamespace("openBISG"))
   bg <- get("geo_bg_pop", envir = asNamespace("openBISG"))
   key <- substr(d$geoid[1], 1L, 12L)
@@ -60,7 +47,6 @@ test_that("pop block counts are consistent with the parent aggregates", {
 })
 
 test_that("block_shrink blends the parent block-group POP composition", {
-  skip_if_not(pop_tables_present(), "geo_*_pop tables not built")
   d <- get("geo_block_pop", envir = asNamespace("openBISG"))
   key <- d$geoid[1]
   raw <- geo_prior(block = key, type = "pop", geo_smooth = 0,
@@ -76,7 +62,6 @@ test_that("block_shrink blends the parent block-group POP composition", {
 })
 
 test_that("predict_demog and predict_wru accept geography_type = 'pop'", {
-  skip_if_not(pop_tables_present(), "geo_*_pop tables not built")
   d <- get("geo_block_pop", envir = asNamespace("openBISG"))
   key <- d$geoid[1]
   df <- data.frame(last = "Garcia", block = key, stringsAsFactors = FALSE)
