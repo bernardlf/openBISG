@@ -36,9 +36,9 @@ Census downloads). CVAP is appropriate for predictions about
 likely voters (e.g. matching against a voter file); VAP when the
 bearer's citizenship status is unknown; \code{"pop"} when the bearer
 may be a minor, or for comparability with \code{wru}. The \code{"pop"}
-tables are built by \code{data-raw/build_geo_pop.R} (tract /
-block-group / block only; no ZCTA) and are not bundled with the
-package sources while under evaluation.}
+tables (\link{geo_block_pop}, \link{geo_bg_pop}, \link{geo_tract_pop}) cover
+tract / block-group / block only; there is no ZCTA table (census
+blocks do not nest in ZCTAs).}
 
 \item{geo_smooth}{Pseudo-count, in people, used to shrink the
 looked-up composition toward the national marginal of the same
