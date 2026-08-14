@@ -4,6 +4,19 @@ This file documents the process of developing the pipeline for this project usin
 
 ---
 
+### Before Anything Else: Check the Environment
+
+Data and results for this project generally live **outside** this repository. Before concluding that a file or dataset is unreachable, check the session environment:
+
+- **`env | cut -d= -f1 | sort`** — look for `GDRIVE_SA_KEY` (Google Drive service-account credential) and `OVERLEAF_GIT_TOKEN` (Overleaf push access). Filter the environment by *listing* it, not by grepping for guessed substrings.
+- **Google Drive** — check for an **`openBISG*`** folder; if available, it contains a `readme.md` with further instructions, along with the working data and results.
+
+`GDRIVE_SA_KEY` is a **base64-encoded service-account JSON key** with access to the `cldata` shared drive. There is no Google Drive MCP connector in these sessions and the drive is not mounted — go through the Drive REST API, passing `supportsAllDrives`, `includeItemsFromAllDrives`, and `corpora=allDrives` so shared-drive items are visible. `CLOUDSDK_AUTH_ACCESS_TOKEN` is a proxy placeholder and does **not** authenticate against googleapis.com.
+
+Nothing retrieved from these locations may be committed to this repository or included in a pull request — openBISG is a public package.
+
+---
+
 ### Installing Dependencies in Claude Code Sessions
 
 The Claude Code web environment runs **Ubuntu 24.04 (Noble)**. Python 3.11 and pip are pre-installed; `matplotlib` and `pandas` are **not** pre-installed and must be installed via pip (see Step 1 below). R and LaTeX are also **not** pre-installed. The apt package lists ship from the image build date and are stale, so `apt-get update` is **required** before any install (without it, `apt-get install` fails with exit code 100).
