@@ -4,6 +4,12 @@ This file documents the process of developing the pipeline for this project usin
 
 ---
 
+### Commit and PR Conventions
+
+This repository is public. Do not include Claude session URLs (`https://claude.ai/code/session_...`), `Claude-Session:` commit trailers, or any other session identifiers in commit messages, PR titles or bodies, issue comments, tag messages, release notes, code, or documentation. If tooling appends such a link automatically, remove it before committing or posting. For attribution, use the plain link `https://claude.com/claude-code`, optionally with the standard `Co-Authored-By: Claude <noreply@anthropic.com>` trailer.
+
+---
+
 ### Installing Dependencies in Claude Code Sessions
 
 The Claude Code web environment runs **Ubuntu 24.04 (Noble)**. Python 3.11 and pip are pre-installed; `matplotlib` and `pandas` are **not** pre-installed and must be installed via pip (see Step 1 below). R and LaTeX are also **not** pre-installed. The apt package lists ship from the image build date and are stale, so `apt-get update` is **required** before any install (without it, `apt-get install` fails with exit code 100).
